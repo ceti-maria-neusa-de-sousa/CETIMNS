@@ -1,0 +1,266 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Portal institucional do CETI Maria Neusa de Sousa, Francisco Macedo-PI."
+    />
+    <title>CETI Maria Neusa de Sousa</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Ir para o conteúdo principal</a>
+    <div class="app-shell">
+      <header class="site-header" id="top">
+        <nav class="nav" aria-label="Navegação principal">
+          <a class="brand" href="#inicio" aria-label="CETI Maria Neusa de Sousa - Início">
+            <span class="brand-mark" aria-hidden="true">
+              <img src="logo-ceti.png" alt="" />
+            </span>
+            <span class="brand-copy">
+              <strong>CETI Maria Neusa de Sousa</strong>
+              <small>Francisco Macedo - PI</small>
+            </span>
+          </a>
+
+          <button class="icon-button menu-toggle" data-menu-toggle aria-label="Abrir menu">
+            <span></span><span></span><span></span>
+          </button>
+
+          <div class="nav-panel" data-nav-panel>
+            <a class="nav-link" href="#inicio" data-route="inicio">Início</a>
+            <a class="nav-link" href="#noticias" data-route="noticias">Notícias</a>
+            <a class="nav-link" href="#quem-somos" data-route="quem-somos">Quem Somos</a>
+            <a class="nav-link" href="#calendario" data-route="calendario">Calendário</a>
+            <a class="nav-link" href="#atividades" data-route="atividades">Atividades</a>
+            <a class="nav-link" href="#conquistas" data-route="conquistas">Conquistas</a>
+            <a class="nav-link" href="#contato" data-route="contato">Contato</a>
+            <a class="nav-link admin-link" href="#login" data-route="login">Login</a>
+          </div>
+
+          <div class="nav-actions">
+            <button class="theme-toggle" data-theme-toggle aria-label="Alternar modo claro e escuro">
+              <span aria-hidden="true">T</span>
+            </button>
+          </div>
+        </nav>
+      </header>
+
+      <main id="main" tabindex="-1">
+        <section class="page active" id="inicio" data-page="inicio" aria-labelledby="inicio-title">
+          <div class="hero">
+            <div class="hero-media" data-hero-media aria-hidden="true"></div>
+            <div class="hero-overlay"></div>
+            <div class="container hero-content">
+              <img class="hero-logo" src="logo-ceti.png" alt="Logo do CETI Maria Neusa de Sousa" />
+              <div class="hero-copy">
+                <div class="hero-kicker">Portal educacional integrado</div>
+                <h1 id="inicio-title">CETI Maria Neusa de Sousa</h1>
+                <p>
+                  Educação integral, tecnologia e compromisso com o futuro dos estudantes de
+                  Francisco Macedo-PI.
+                </p>
+                <div class="hero-actions">
+                  <a class="button primary" href="#noticias">Ver notícias</a>
+                  <a class="button secondary" href="#calendario">Calendário escolar</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <section class="section-band">
+            <div class="container">
+              <div class="section-heading">
+                <span>Destaques</span>
+                <h2>O que está acontecendo na escola</h2>
+              </div>
+              <div class="feature-grid" data-home-highlights></div>
+            </div>
+          </section>
+
+          <section class="container section-space">
+            <div class="stats-grid" data-indicators></div>
+          </section>
+
+          <section class="section-band soft">
+            <div class="container split-layout">
+              <div>
+                <div class="section-heading compact">
+                  <span>Galeria</span>
+                  <h2>Projetos, eventos e atividades recentes</h2>
+                </div>
+                <p class="muted">
+                  Registros das ações pedagógicas, feiras, projetos interdisciplinares,
+                  competições e momentos de integração da comunidade escolar.
+                </p>
+              </div>
+              <div class="gallery-strip" data-gallery-strip></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" id="noticias" data-page="noticias" aria-labelledby="noticias-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Comunicação escolar</span>
+              <h1 id="noticias-title">Notícias</h1>
+              <p>Informes, avisos, atividades e acontecimentos publicados pela equipe da escola.</p>
+            </div>
+          </div>
+          <div class="container section-space">
+            <div class="toolbar">
+              <input class="input" data-filter="noticias" type="search" placeholder="Buscar notícias" aria-label="Buscar notícias" />
+              <select class="input" data-category-filter="noticias" aria-label="Filtrar notícias por categoria"></select>
+            </div>
+            <div class="content-grid" data-news-list></div>
+          </div>
+        </section>
+
+        <section class="page" id="noticia" data-page="noticia" aria-labelledby="noticia-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Notícia completa</span>
+              <h1 id="noticia-title">Notícias</h1>
+              <p>Leia a publicação completa da escola.</p>
+            </div>
+          </div>
+          <div class="container section-space" data-news-detail></div>
+        </section>
+
+        <section class="page" id="quem-somos" data-page="quem-somos" aria-labelledby="quem-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Identidade institucional</span>
+              <h1 id="quem-title">Quem Somos</h1>
+              <p>Uma escola pública de tempo integral voltada à aprendizagem, à cidadania e à inclusão digital.</p>
+            </div>
+          </div>
+          <div class="container section-space about-grid">
+            <article class="panel wide">
+              <h2>História da escola</h2>
+              <p data-about-history></p>
+            </article>
+            <article class="panel">
+              <h2>Missão</h2>
+              <p data-about-mission></p>
+            </article>
+            <article class="panel">
+              <h2>Visão</h2>
+              <p data-about-vision></p>
+            </article>
+            <article class="panel">
+              <h2>Valores</h2>
+              <p data-about-values></p>
+            </article>
+            <article class="panel wide">
+              <h2>Equipe gestora e corpo docente</h2>
+              <div class="people-grid" data-team-list></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="page" id="calendario" data-page="calendario" aria-labelledby="cal-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Organização acadêmica</span>
+              <h1 id="cal-title">Calendário escolar</h1>
+              <p>Eventos, provas, reuniões, datas comemorativas e atividades programadas.</p>
+            </div>
+          </div>
+          <div class="container section-space">
+            <div class="segmented" role="tablist" aria-label="Visualização do calendário">
+              <button class="active" data-calendar-view="month">Mensal</button>
+              <button data-calendar-view="week">Semanal</button>
+              <button data-calendar-view="list">Lista</button>
+            </div>
+            <div class="calendar-shell" data-calendar></div>
+          </div>
+        </section>
+
+        <section class="page" id="atividades" data-page="atividades" aria-labelledby="atividades-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Aprendizagem ativa</span>
+              <h1 id="atividades-title">Atividades</h1>
+              <p>Projetos, trabalhos, feiras, competições e eventos desenvolvidos pela comunidade escolar.</p>
+            </div>
+          </div>
+          <div class="container section-space">
+            <div class="toolbar">
+              <input class="input" data-filter="atividades" type="search" placeholder="Buscar atividades" aria-label="Buscar atividades" />
+            </div>
+            <div class="content-grid" data-activity-list></div>
+          </div>
+        </section>
+
+        <section class="page" id="conquistas" data-page="conquistas" aria-labelledby="conquistas-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Resultados e reconhecimento</span>
+              <h1 id="conquistas-title">Conquistas</h1>
+              <p>Premiações, certificações, olimpíadas, medalhas e destaques estudantis.</p>
+            </div>
+          </div>
+          <div class="container section-space">
+            <div class="toolbar">
+              <input class="input" data-filter="conquistas" type="search" placeholder="Buscar conquistas" aria-label="Buscar conquistas" />
+              <select class="input" data-category-filter="conquistas" aria-label="Filtrar conquistas por categoria"></select>
+            </div>
+            <div class="content-grid" data-achievement-list></div>
+          </div>
+        </section>
+
+        <section class="page" id="contato" data-page="contato" aria-labelledby="contato-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Fale conosco</span>
+              <h1 id="contato-title">Contato</h1>
+              <p>Canais de atendimento para estudantes, famílias, servidores e comunidade.</p>
+            </div>
+          </div>
+          <div class="container section-space contact-grid">
+            <article class="panel">
+              <h2>Informações</h2>
+              <p><strong>Endereço:</strong> <span data-contact-address></span></p>
+              <p><strong>Telefone:</strong> <span data-contact-phone></span></p>
+              <p><strong>E-mail:</strong> <span data-contact-email></span></p>
+            </article>
+            <form class="panel contact-form" data-contact-form>
+              <h2>Enviar mensagem</h2>
+              <label>Nome<input class="input" required name="nome" /></label>
+              <label>E-mail<input class="input" required type="email" name="email" /></label>
+              <label>Mensagem<textarea class="input" required name="mensagem" rows="5"></textarea></label>
+              <button class="button primary" type="submit">Enviar contato</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="page" id="login" data-page="login" aria-labelledby="login-title">
+          <div class="page-hero">
+            <div class="container">
+              <span>Acesso escolar</span>
+              <h1 id="login-title">Login</h1>
+              <p>Area do administrador, professores e estudantes para cadastro, lancamento e consulta de notas.</p>
+            </div>
+          </div>
+          <div class="container section-space" data-login-root></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer-grid">
+          <div>
+            <strong>CETI Maria Neusa de Sousa</strong>
+            <p>Portal institucional escolar - Francisco Macedo-PI.</p>
+          </div>
+          <a href="#top">Voltar ao topo</a>
+        </div>
+      </footer>
+    </div>
+
+    <div class="toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "ceti-maria-neusa",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": ".\\scripts\\next-dev.cmd",
+    "build": ".\\scripts\\next-build.cmd",
+    "start": ".\\scripts\\next-start.cmd"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.49.1",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
