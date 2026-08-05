@@ -8,6 +8,7 @@ const SCHOOL_LOGO = "logo-ceti.png";
 const SCHOOL_TITLE = "CETI Maria Neusa de Sousa";
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS_TOTAL_SIZE = 25 * 1024 * 1024;
+const DEFAULT_STUDENT_PASSWORD = "1234";
 const makeId = () => crypto.randomUUID();
 const normalizeUser = (value) => String(value ?? "").trim().toLowerCase();
 const normalizePassword = (value) => String(value ?? "").trim();
@@ -75,6 +76,57 @@ const escapeHtml = (value = "") =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+
+const parseCsvText = (text) => {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const headers = lines[0].split(",").map((value) => value.trim().toLowerCase());
+  return lines.slice(1).map((line) => {
+    const values = line
+      .split(",")
+      .map((value) => value.trim().replace(/^"|"$/g, ""));
+    return headers.reduce((row, header, index) => {
+      row[header] = values[index] || "";
+      return row;
+    }, {});
+  });
+};
+
+const parseFileClassName = (fileName) => {
+  const base = String(fileName ?? "").replace(/\.csv$/i, "").trim();
+  if (!base) return "";
+  let className = base.replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+  className = className.replace(/^(turma|class)\s*/i, "").trim();
+  return className;
+};
+
+const createStudentUsername = (name, existingUsernames = new Set(), preferredUser = "") => {
+  const preferred = normalizeUser(preferredUser || "");
+  const base = preferred || normalizeUser(name)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  let user = base || `aluno${Math.floor(Math.random() * 100000)}`;
+  let counter = 1;
+  while (existingUsernames.has(user) || !user) {
+    user = `${base || "aluno"}${counter++}`;
+  }
+  existingUsernames.add(user);
+  return user;
+};
+
+const parseStudentCsvRows = (text, fallbackClassName = "") => {
+  const rows = parseCsvText(text);
+  return rows
+    .map((row) => {
+      const className = String(row.classname || row.className || row.turma || "").trim() || fallbackClassName;
+      return {
+        name: String(row.name || row.nome || "").trim(),
+        className: className.trim(),
+        user: String(row.user || "").trim() || null
+      };
+    })
+    .filter((row) => row.name && row.className);
+};
 
 // ==================== FUNÇÕES DE CÁLCULO ====================
 function calculateTrimesterRecovery(n1, n2, n3) {
@@ -1943,6 +1995,13 @@ function renderStudentsAdmin(content) {
         <p class="muted">Crie, edite e remova alunos sincronizados com o Supabase.</p>
       </div>
     </div>
+    <div class="panel">
+      <h3>Cadastro em massa</h3>
+      <p class="muted">Envie um arquivo CSV com as colunas <strong>name</strong> e <strong>className</strong>. O usuário será criado automaticamente a partir do nome e a senha padrão será <strong>1234</strong>.</p>
+      <label>Arquivo CSV<input class="input" type="file" accept=".csv" data-student-bulk-file></label>
+      <button class="button primary" type="button" data-student-bulk-import>Importar alunos em massa</button>
+      <div class="panel" style="margin-top: 0.5rem;" data-student-bulk-preview><p class="muted">Nenhum arquivo selecionado.</p></div>
+    </div>
     <form class="panel contact-form" data-student-form>
       <input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}">
       <label>Nome<input class="input" name="name" value="${escapeHtml(editing?.name || "")}" required></label>
@@ -1956,7 +2015,7 @@ function renderStudentsAdmin(content) {
         ${renderClassLinkInfo(selectedClassName)}
       </div>
       <label>Usuário<input class="input" name="user" value="${escapeHtml(editing?.user || "")}"></label>
-      <label>Senha<input class="input" name="password" type="text" value="${escapeHtml(editing?.password || "")}"></label>
+      <label>Senha<input class="input" name="password" type="text" value="${escapeHtml(editing?.password || "")}" placeholder="${editing ? "" : "1234"}"></label>
       <label class="checkbox-row"><input type="checkbox" name="isJournalist"${editing?.isJournalist ? " checked" : ""}> Aluno jornalista — pode criar matérias para o jornal escolar</label>
       <div class="row-actions">
         <button class="button primary" type="submit">${editing ? "Atualizar aluno" : "Salvar aluno"}</button>
@@ -1994,16 +2053,107 @@ function renderStudentsAdmin(content) {
     </div>
   `;
 
+  let bulkStudents = [];
+  const bulkFileInput = $("[data-student-bulk-file]");
+  const bulkPreview = $("[data-student-bulk-preview]");
+  const bulkImportButton = $("[data-student-bulk-import]");
+
+  const updateBulkPreview = () => {
+    if (!bulkStudents.length) {
+      bulkPreview.innerHTML = `<p class="muted">Nenhum arquivo selecionado.</p>`;
+      return;
+    }
+    bulkPreview.innerHTML = `
+      <p class="muted">${bulkStudents.length} aluno(s) pronto(s) para importar.</p>
+      <div class="list-view">
+        ${bulkStudents
+          .map(
+            (student) => `
+              <article class="list-item">
+                <div>
+                  <strong>${escapeHtml(student.name)}</strong>
+                  <p class="muted">${escapeHtml(student.className)}${student.user ? ` | @${escapeHtml(student.user)}` : ""}</p>
+                </div>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    `;
+  };
+
+  if (bulkFileInput) {
+    bulkFileInput.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".csv")) return toast("Selecione um arquivo CSV.");
+      const text = await file.text();
+      const fallbackClassName = parseFileClassName(file.name);
+      bulkStudents = parseStudentCsvRows(text, fallbackClassName);
+      if (!bulkStudents.length) {
+        toast("O arquivo CSV não contém linhas válidas. Use as colunas name e className ou informe a turma no nome do arquivo.");
+      }
+      updateBulkPreview();
+    });
+  }
+
+  if (bulkImportButton) {
+    bulkImportButton.addEventListener("click", async () => {
+      if (!bulkStudents.length) return toast("Selecione um arquivo CSV válido antes de importar.");
+      const existingUsernames = new Set(state.students.map((student) => normalizeUser(student.user || "")));
+      const existingStudents = new Set(state.students.map((student) => `${normalizeLabel(student.name)}|${normalizeLabel(student.className)}`));
+      const rowsToInsert = bulkStudents
+        .map((student) => {
+          const key = `${normalizeLabel(student.name)}|${normalizeLabel(student.className)}`;
+          if (existingStudents.has(key)) return null;
+          const user = createStudentUsername(student.name, existingUsernames, student.user || "");
+          existingStudents.add(key);
+          return {
+            id: makeId(),
+            name: student.name,
+            className: student.className,
+            user,
+            password: DEFAULT_STUDENT_PASSWORD,
+            is_journalist: false
+          };
+        })
+        .filter(Boolean);
+
+      if (!rowsToInsert.length) return toast("Nenhum aluno novo para importar. Verifique se já existem alunos com os mesmos nome e turma.");
+
+      const missingClasses = [...new Set(rowsToInsert.map((item) => item.className))].filter(
+        (className) => !state.classes.some((cls) => normalizeLabel(cls.name) === normalizeLabel(className))
+      );
+      for (const className of missingClasses) {
+        await upsertRecord("classes", { name: className }, "name", `Turma ${className} criada automaticamente.`);
+      }
+
+      const { error } = await supabase.from("students").insert(rowsToInsert);
+      if (error) {
+        console.error("Erro ao importar alunos em massa:", error);
+        return toast("Erro ao importar alunos em massa.");
+      }
+
+      bulkStudents = [];
+      bulkPreview.innerHTML = `<p class="muted">Importação concluída com ${rowsToInsert.length} aluno(s).</p>`;
+      if (bulkFileInput) bulkFileInput.value = "";
+      clearCache("students");
+      await syncAdminData(`Importados ${rowsToInsert.length} aluno(s).`);
+    });
+  }
+
   $("[data-student-form]").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.target);
     const id = String(form.get("id") || "").trim();
+    let password = String(form.get("password") || "").trim();
+    if (!password && !id) password = DEFAULT_STUDENT_PASSWORD;
     const payload = {
       id: id || makeId(),
       name: String(form.get("name") || "").trim(),
       className: String(form.get("className") || "").trim(),
       user: String(form.get("user") || "").trim() || null,
-      password: String(form.get("password") || "").trim() || null,
+      password: password || null,
       is_journalist: Boolean(form.get("isJournalist"))
     };
     if (!payload.name || !payload.className) return toast("Informe nome e turma.");
@@ -2071,7 +2221,7 @@ function renderTeachersAdmin(content) {
         </div>
       </fieldset>
       <label>Usuário<input class="input" name="user" value="${escapeHtml(editing?.user || "")}"></label>
-      <label>Senha<input class="input" name="password" type="text" value="${escapeHtml(editing?.password || "")}"></label>
+      <label>Senha<input class="input" name="password" type="text" value="${escapeHtml(editing?.password || "")}" placeholder="${editing ? "" : "1234"}"></label>
       <div class="row-actions">
         <button class="button primary" type="submit">${editing ? "Atualizar professor" : "Salvar professor"}</button>
         ${editing ? '<button class="button ghost" type="button" data-teacher-cancel>Cancelar edição</button>' : ""}
@@ -2112,13 +2262,15 @@ function renderTeachersAdmin(content) {
     }));
     const subjects = [...new Set(assignments.map((item) => item.subject))];
     const classes = [...new Set(assignments.map((item) => item.className))];
+    let password = String(form.get("password") || "").trim();
+    if (!password && !id) password = "1234";
     const payload = {
       id: id || makeId(),
       name: String(form.get("name") || "").trim(),
       subject: subjects.join(", "),
       classes,
       user: String(form.get("user") || "").trim() || null,
-      password: String(form.get("password") || "").trim() || null
+      password: password || null
     };
     if (!payload.name || !assignments.length) return toast("Informe o nome e vincule ao menos uma disciplina a uma turma.");
     const saved = await upsertRecord("teachers", payload, "id", id ? "Professor atualizado." : "Professor salvo.");
