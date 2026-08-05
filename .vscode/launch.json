@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "editor-browser",
+      "request": "launch",
+      "name": "Open site on localhost",
+      "url": "http://localhost:3000/legacy/index.html",
+      "preLaunchTask": "next-dev"
+    }
+  ]
+}
