@@ -377,6 +377,27 @@ async function saveGradeToSupabase(grade) {
   }
 }
 
+async function saveGradesToSupabase(grades) {
+  const gradePayloads = grades.map((grade) => {
+    const payload = {
+      ...grade,
+      studentid: grade.studentId,
+      subject: grade.subject,
+      className: grade.className
+    };
+    delete payload.studentId;
+    return payload;
+  });
+  const { error } = await supabase.from("grades").upsert(gradePayloads, { onConflict: "id" });
+  if (error) throw error;
+  clearCache("grades");
+}
+
+function isValidGradeScore(value) {
+  const score = Number(value);
+  return Number.isFinite(score) && score >= 0 && score <= 10;
+}
+
 function formatDate(date) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(new Date(`${date}T12:00:00`));
 }
@@ -1129,6 +1150,7 @@ function renderTeacherPanel(session) {
     event.preventDefault();
     if (!activeClass || !activeSubject) return toast("Escolha uma turma e uma disciplina antes de lançar as notas.");
     
+    const gradeUpdates = [];
     for (const student of teacherStudents) {
       const existing = state.grades.find(
         (g) =>
@@ -1140,9 +1162,20 @@ function renderTeacherPanel(session) {
       const n1 = event.target.elements[`n1-${student.id}`]?.value || 0;
       const n2 = event.target.elements[`n2-${student.id}`]?.value || 0;
       const n3 = event.target.elements[`n3-${student.id}`]?.value || 0;
+      const recoveryScore = event.target.elements[`rec-${student.id}`]?.value || 0;
+      if (![n1, n2, n3, recoveryScore].every(isValidGradeScore)) {
+        return toast(`A nota de ${student.name} deve estar entre 0 e 10.`);
+      }
       const recovery = calculateTrimesterRecovery(n1, n2, n3);
 
-      const gradeData = existing || {
+      const gradeData = existing ? {
+        ...existing,
+        trimesters: {
+          1: { ...normalizeTrimester(existing.trimesters?.[1]) },
+          2: { ...normalizeTrimester(existing.trimesters?.[2]) },
+          3: { ...normalizeTrimester(existing.trimesters?.[3]) }
+        }
+      } : {
         id: makeId(),
         studentId: student.id,
         subject: activeSubject,
@@ -1150,20 +1183,35 @@ function renderTeacherPanel(session) {
         trimesters: { 1: normalizeTrimester(), 2: normalizeTrimester(), 3: normalizeTrimester() }
       };
 
-      gradeData.trimesters[currentTeacherTrimester] = { n1, n2, n3, recovery };
-
-      if (existing) {
-        const idx = state.grades.indexOf(existing);
-        state.grades[idx] = gradeData;
-      } else {
-        state.grades.push(gradeData);
-      }
-
-      await saveGradeToSupabase(gradeData);
+      gradeData.trimesters[currentTeacherTrimester] = { n1, n2, n3, recovery, recoveryScore };
+      gradeUpdates.push({ existing, gradeData });
     }
 
-    toast("Notas salvas com sucesso.");
-    renderTeacherPanel(session);
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Salvando...";
+    }
+    try {
+      await saveGradesToSupabase(gradeUpdates.map((item) => item.gradeData));
+      gradeUpdates.forEach(({ existing, gradeData }) => {
+        if (existing) {
+          const index = state.grades.indexOf(existing);
+          if (index >= 0) state.grades[index] = gradeData;
+        } else {
+          state.grades.push(gradeData);
+        }
+      });
+      toast("Notas salvas com sucesso.");
+      renderTeacherPanel(session);
+    } catch (error) {
+      console.error("Erro ao salvar notas:", error);
+      toast("Não foi possível salvar as notas. Tente novamente.");
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = `Salvar ${currentTeacherTrimester} trimestre`;
+      }
+    }
   });
 }
 
