@@ -1880,8 +1880,10 @@ function renderCatalogAdmin(content) {
     .join("");
 
   const subjectRows = state.subjects
+    .slice()
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "pt-BR"))
     .map((subjectItem) => {
-      return `<div class="list-item">
+      return `<div class="list-item" data-subject-row-item data-subject-name="${escapeHtml(normalizeLabel(subjectItem.name))}">
         <form class="row-actions" data-subject-row data-current="${escapeHtml(subjectItem.name)}">
           <input class="input" name="name" value="${escapeHtml(subjectItem.name)}">
           <button class="button ghost" type="submit">Salvar</button>
@@ -1913,6 +1915,8 @@ function renderCatalogAdmin(content) {
           <input class="input" name="name" placeholder="Nova disciplina">
           <button class="button primary" type="submit">Adicionar</button>
         </form>
+        <input class="input catalog-search" type="search" data-subject-search placeholder="Pesquisar disciplina" aria-label="Pesquisar disciplinas">
+        <p class="muted" data-subject-filter-status>${state.subjects.length} disciplina(s) encontrada(s).</p>
         <div class="list-view scrollable-list catalog-list">${subjectRows || emptyState("Nenhuma disciplina cadastrada.")}</div>
       </article>
     </div>
@@ -1983,6 +1987,19 @@ function renderCatalogAdmin(content) {
       await deleteRecord("subjects", "name", button.dataset.name, "Disciplina removida.");
     })
   );
+
+  const subjectSearch = $("[data-subject-search]");
+  const subjectFilterStatus = $("[data-subject-filter-status]");
+  subjectSearch?.addEventListener("input", () => {
+    const term = normalizeLabel(subjectSearch.value);
+    let visible = 0;
+    $$('[data-subject-row-item]').forEach((row) => {
+      const matches = !term || row.dataset.subjectName.includes(term);
+      row.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    if (subjectFilterStatus) subjectFilterStatus.textContent = `${visible} disciplina(s) encontrada(s).`;
+  });
 }
 
 function renderStudentsAdmin(content) {

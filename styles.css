@@ -921,6 +921,11 @@ textarea.input {
   max-height: 360px;
 }
 
+.catalog-search {
+  width: 100%;
+  margin-top: 12px;
+}
+
 .student-list-filters {
   margin-bottom: 10px;
 }
@@ -930,6 +935,10 @@ textarea.input {
 }
 
 [data-student-row][hidden] {
+  display: none;
+}
+
+[data-subject-row-item][hidden] {
   display: none;
 }
 
