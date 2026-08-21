@@ -1151,7 +1151,11 @@ function renderTeacherPanel(session) {
   });
 
   $("[data-pdf-report]").addEventListener("click", () => {
-    generatePdfReport(`Relatório — ${activeSubject} — ${activeClass}`, teacherReportTable(teacher, teacherGrades, activeSubject, activeClass));
+    generatePdfReport(
+      `Relatório de notas - ${activeSubject} - ${activeClass}`,
+      teacherPdfReportTable(teacherGrades, activeSubject, activeClass),
+      { landscape: true, className: activeClass, subject: activeSubject }
+    );
   });
 
   setupTeacherGradeLivePreview(teacher, currentTeacherTrimester, activeSubject, activeClass);
@@ -1497,7 +1501,11 @@ function renderStudentPanel(session) {
   });
 
   $("[data-pdf-report]").addEventListener("click", () => {
-    generatePdfReport(`Boletim — ${student.name}`, studentReportTable(subjectEntries, allGradesComplete, finalRecovery));
+    generatePdfReport(
+      `Boletim escolar - ${student.name}`,
+      studentPdfReportTable(subjectEntries, allGradesComplete, finalRecovery),
+      { studentName: student.name, className: getClassLabel(student.className) }
+    );
   });
 }
 
@@ -1668,12 +1676,16 @@ function miniStat(label, value) {
   return `<div class="mini-stat"><strong>${value}</strong><span>${label}</span></div>`;
 }
 
-function generatePdfReport(title, content) {
-  const reportWindow = window.open("", "_blank", "noopener,noreferrer");
+function generatePdfReport(title, content, options = {}) {
+  // A abertura ocorre durante o clique do usuário. Não use `noopener`, pois
+  // alguns navegadores retornam `null` e impedem a criação do relatório.
+  const reportWindow = window.open("", "_blank");
   if (!reportWindow) {
     toast("Permita pop-ups para gerar o PDF.");
     return;
   }
+  const logoUrl = new URL(SCHOOL_LOGO, window.location.href).href;
+  const pageOrientation = options.landscape ? "landscape" : "portrait";
   const generatedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date());
   reportWindow.document.write(`
     <!doctype html>
@@ -1682,7 +1694,7 @@ function generatePdfReport(title, content) {
         <meta charset="utf-8">
         <title>${escapeHtml(title)}</title>
         <style>
-          @page { size: A4; margin: 14mm; }
+          @page { size: A4 ${pageOrientation}; margin: 12mm; }
           * { box-sizing: border-box; }
           body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
           .pdf-header {
@@ -1713,13 +1725,21 @@ function generatePdfReport(title, content) {
             font-size: 12px;
             margin: 0;
           }
-          h1 { font-size: 21px; margin: 0 0 14px; }
+          h1 { font-size: 19px; text-transform: uppercase; text-align: center; margin: 0 0 12px; }
           p { margin: 0; color: #4b5563; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
-          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
-          th { background: #253a9b; color: white; }
+          table { width: 100%; border-collapse: collapse; font-size: 10px; }
+          th, td { border: 1px solid #334155; padding: 6px; text-align: center; vertical-align: middle; }
+          th { background: #e8eefc; color: #13235f; font-weight: 800; }
+          .student-name, .student-sheet td:first-child { text-align: left; }
+          .average { font-weight: 800; }
           .table-scroll { overflow: visible; }
-          .report-meta { margin-bottom: 12px; font-size: 12px; }
+          .report-meta { margin-bottom: 12px; font-size: 11px; text-align: center; }
+          .report-context { border: 1px solid #334155; padding: 8px 10px; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 11px; }
+          .legend { font-size: 9px; margin-top: 8px; }
+          .grade-sheet { font-size: 8px; }
+          .grade-sheet th, .grade-sheet td { padding: 4px 3px; }
+          .grade-sheet .student-name { min-width: 125px; }
+          .student-sheet { font-size: 11px; }
           .actions { display: flex; gap: 8px; margin-top: 18px; }
           button { border: 1px solid #253a9b; background: #253a9b; color: white; padding: 10px 14px; font-weight: 700; cursor: pointer; }
           @media print { .actions { display: none; } }
@@ -1727,7 +1747,7 @@ function generatePdfReport(title, content) {
       </head>
       <body>
         <header class="pdf-header">
-          <img class="pdf-logo" src="${SCHOOL_LOGO}" alt="Logo do CETI Maria Neusa de Sousa">
+          <img class="pdf-logo" src="${logoUrl}" alt="Logo do CETI Maria Neusa de Sousa">
           <div>
             <p class="school-name">CETI Maria Neusa de Sousa</p>
             <p class="school-info">
@@ -1738,6 +1758,7 @@ function generatePdfReport(title, content) {
           </div>
         </header>
         <h1>${escapeHtml(title)}</h1>
+        ${options.studentName ? `<div class="report-context"><span><strong>Estudante:</strong> ${escapeHtml(options.studentName)}</span><span><strong>Turma:</strong> ${escapeHtml(options.className || "Não informada")}</span></div>` : ""}
         <p class="report-meta">Documento gerado em ${generatedAt}</p>
         ${content}
         <div class="actions">
@@ -3061,6 +3082,28 @@ function teacherReportTable(teacher, grades, subject, className) {
       </table>
     </div>
   `;
+}
+
+function teacherPdfReportTable(grades, subject, className) {
+  const score = (grade, trimester, field) => Number(getTrimester(grade, trimester)[field] || 0).toFixed(1);
+  const rows = grades.map((grade, index) => {
+    const student = state.students.find((item) => idsEqual(item.id, grade.studentId));
+    const finalAverage = gradeAverage(grade);
+    const status = hasTrimesterScores(grade, "3")
+      ? Number(finalAverage) >= 6 ? "Aprovado" : "Recuperação final"
+      : "Em andamento";
+    return `<tr><td>${index + 1}</td><td class="student-name">${escapeHtml(student?.name || "Aluno")}</td>${["1", "2", "3"].map((trimester) => `<td>${score(grade, trimester, "n1")}</td><td>${score(grade, trimester, "n2")}</td><td>${score(grade, trimester, "n3")}</td><td class="average">${getTrimesterFinalAverage(grade, trimester)}</td>`).join("")}<td class="average">${finalAverage}</td><td>${status}</td></tr>`;
+  }).join("");
+  return `<section class="official-report"><div class="report-context"><strong>Turma:</strong> ${escapeHtml(getClassLabel(className))}<span><strong>Disciplina:</strong> ${escapeHtml(getSubjectLabel(subject))}</span></div><table class="grade-sheet"><thead><tr><th rowspan="2">Nº</th><th rowspan="2">Estudante</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>N1</th><th>N2</th><th>N3</th><th>MF</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="16">Nenhuma nota registrada nesta turma e disciplina.</td></tr>`}</tbody></table><p class="legend">MF: média final do trimestre. O relatório contém exclusivamente os estudantes da turma e disciplina selecionadas.</p></section>`;
+}
+
+function studentPdfReportTable(subjectEntries, allComplete, finalRecovery) {
+  const rows = subjectEntries.map(({ subject, grade }) => {
+    const data = grade || { trimesters: {} };
+    const status = !grade ? "Sem notas" : allComplete ? Number(gradeAverage(data)) >= 6 ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação" : "Em andamento";
+    return `<tr><td>${escapeHtml(subject)}</td><td>${trimesterAverage(data, "1")}</td><td>${trimesterAverage(data, "2")}</td><td>${trimesterAverage(data, "3")}</td><td class="average">${gradeAverage(data)}</td><td>${status}</td></tr>`;
+  }).join("");
+  return `<section class="official-report"><table class="student-sheet"><thead><tr><th>Disciplina</th><th>1º trimestre</th><th>2º trimestre</th><th>3º trimestre</th><th>Média final</th><th>Situação</th></tr></thead><tbody>${rows || `<tr><td colspan="6">Nenhuma disciplina vinculada.</td></tr>`}</tbody></table><p class="legend">Este boletim apresenta somente as disciplinas e notas do estudante identificado acima.</p></section>`;
 }
 
 function trimesterMiniTable(grade, trimester) {
