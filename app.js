@@ -1382,8 +1382,19 @@ function renderStudentPanel(session) {
           : "Aguardando preenchimento de todas as notas..."
       }</strong>
     </article>
-    <div class="grade-grid">
-      ${subjectEntries.map((entry) => studentGradeCard(entry.grade, entry.subject, entry.teachers)).join("") || emptyState("Nenhuma disciplina vinculada à turma.")}
+    <div class="panel">
+      <h3>Notas por disciplina</h3>
+      <div class="toolbar">
+        <label class="sr-only" for="student-subject-filter">Selecionar disciplina</label>
+        <select class="input" id="student-subject-filter" data-student-subject-filter>
+          <option value="">Selecione uma disciplina</option>
+          ${subjectEntries.map((entry) => `<option value="${escapeHtml(normalizeLabel(entry.subject))}">${escapeHtml(entry.subject)}</option>`).join("")}
+        </select>
+      </div>
+      <p class="muted" data-student-subject-filter-message>Selecione uma disciplina para consultar as notas.</p>
+      <div class="grade-grid" data-student-subject-grades>
+        ${subjectEntries.map((entry) => `<div data-student-subject-card data-subject="${escapeHtml(normalizeLabel(entry.subject))}" hidden>${studentGradeCard(entry.grade, entry.subject, entry.teachers)}</div>`).join("") || emptyState("Nenhuma disciplina vinculada à turma.")}
+      </div>
     </div>
     <div class="panel report-panel" data-student-report-panel hidden>
       <div class="portal-heading compact">
@@ -1403,6 +1414,20 @@ function renderStudentPanel(session) {
   if (newsroomButton) newsroomButton.addEventListener("click", () => {
     currentStudentView = "newsroom";
     renderStudentPanel(session);
+  });
+
+  const subjectFilter = $("[data-student-subject-filter]");
+  const subjectFilterMessage = $("[data-student-subject-filter-message]");
+  subjectFilter?.addEventListener("change", () => {
+    const selectedSubject = normalizeLabel(subjectFilter.value);
+    $$('[data-student-subject-card]').forEach((card) => {
+      card.hidden = !selectedSubject || card.dataset.subject !== selectedSubject;
+    });
+    if (subjectFilterMessage) {
+      subjectFilterMessage.textContent = selectedSubject
+        ? "Notas da disciplina selecionada."
+        : "Selecione uma disciplina para consultar as notas.";
+    }
   });
 
   $("[data-student-report]").addEventListener("click", () => {
