@@ -1154,7 +1154,7 @@ function renderTeacherPanel(session) {
     generatePdfReport(
       `Relatório de notas - ${activeSubject} - ${activeClass}`,
       teacherPdfReportTable(teacherGrades, activeSubject, activeClass),
-      { landscape: true, className: activeClass, subject: activeSubject }
+      { landscape: true, officialSheet: true, className: activeClass, subject: activeSubject, teacherName: teacher.name }
     );
   });
 
@@ -1699,7 +1699,7 @@ function generatePdfReport(title, content, options = {}) {
           body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
           .pdf-header {
             display: grid;
-            grid-template-columns: 82px 1fr;
+            grid-template-columns: 1fr 82px;
             gap: 16px;
             align-items: center;
             border-bottom: 3px solid #253a9b;
@@ -1747,7 +1747,6 @@ function generatePdfReport(title, content, options = {}) {
       </head>
       <body>
         <header class="pdf-header">
-          <img class="pdf-logo" src="${logoUrl}" alt="Logo do CETI Maria Neusa de Sousa">
           <div>
             <p class="school-name">CETI Maria Neusa de Sousa</p>
             <p class="school-info">
@@ -1756,6 +1755,7 @@ function generatePdfReport(title, content, options = {}) {
               <span>Telefone: ${escapeHtml(state.contact.phone)} | E-mail: ${escapeHtml(state.contact.email)}</span>
             </p>
           </div>
+          <img class="pdf-logo" src="${logoUrl}" alt="Logo do CETI Maria Neusa de Sousa">
         </header>
         <h1>${escapeHtml(title)}</h1>
         ${options.studentName ? `<div class="report-context"><span><strong>Estudante:</strong> ${escapeHtml(options.studentName)}</span><span><strong>Turma:</strong> ${escapeHtml(options.className || "Não informada")}</span></div>` : ""}
@@ -3094,7 +3094,7 @@ function teacherPdfReportTable(grades, subject, className) {
       : "Em andamento";
     return `<tr><td>${index + 1}</td><td class="student-name">${escapeHtml(student?.name || "Aluno")}</td>${["1", "2", "3"].map((trimester) => `<td>${score(grade, trimester, "n1")}</td><td>${score(grade, trimester, "n2")}</td><td>${score(grade, trimester, "n3")}</td><td class="average">${getTrimesterFinalAverage(grade, trimester)}</td>`).join("")}<td class="average">${finalAverage}</td><td>${status}</td></tr>`;
   }).join("");
-  return `<section class="official-report"><div class="report-context"><strong>Turma:</strong> ${escapeHtml(getClassLabel(className))}<span><strong>Disciplina:</strong> ${escapeHtml(getSubjectLabel(subject))}</span></div><table class="grade-sheet"><thead><tr><th rowspan="2">Nº</th><th rowspan="2">Estudante</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>N1</th><th>N2</th><th>N3</th><th>MF</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="16">Nenhuma nota registrada nesta turma e disciplina.</td></tr>`}</tbody></table><p class="legend">MF: média final do trimestre. O relatório contém exclusivamente os estudantes da turma e disciplina selecionadas.</p></section>`;
+  return `<section class="official-report"><table class="grade-sheet"><thead><tr><th rowspan="2">Nº</th><th rowspan="2">Estudante</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>N1</th><th>N2</th><th>N3</th><th>MF</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="16">Nenhuma nota registrada nesta turma e disciplina.</td></tr>`}</tbody></table><p class="legend">N1, N2 e N3: notas trimestrais. MF: média final do trimestre. RF: resultado final.</p></section>`;
 }
 
 function studentPdfReportTable(subjectEntries, allComplete, finalRecovery) {
