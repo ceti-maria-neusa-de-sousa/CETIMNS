@@ -1905,7 +1905,7 @@ function renderCatalogAdmin(content) {
           <input class="input" name="name" placeholder="Nova turma">
           <button class="button primary" type="submit">Adicionar</button>
         </form>
-        <div class="list-view">${classRows || emptyState("Nenhuma turma cadastrada.")}</div>
+        <div class="list-view scrollable-list catalog-list">${classRows || emptyState("Nenhuma turma cadastrada.")}</div>
       </article>
       <article class="panel">
         <h3>Disciplinas</h3>
@@ -1913,7 +1913,7 @@ function renderCatalogAdmin(content) {
           <input class="input" name="name" placeholder="Nova disciplina">
           <button class="button primary" type="submit">Adicionar</button>
         </form>
-        <div class="list-view">${subjectRows || emptyState("Nenhuma disciplina cadastrada.")}</div>
+        <div class="list-view scrollable-list catalog-list">${subjectRows || emptyState("Nenhuma disciplina cadastrada.")}</div>
       </article>
     </div>
   `;
@@ -2024,12 +2024,22 @@ function renderStudentsAdmin(content) {
     </form>
     <div class="panel">
       <h3>Lista de alunos</h3>
-      <div class="list-view">
+      <div class="toolbar student-list-filters" aria-label="Filtros da lista de alunos">
+        <input class="input" type="search" data-student-search placeholder="Pesquisar por nome ou usuário" aria-label="Pesquisar alunos por nome ou usuário">
+        <select class="input" data-student-class-filter aria-label="Filtrar alunos por turma">
+          <option value="">Todas as turmas</option>
+          ${buildOptions(state.classes.map((item) => ({ value: item.name, label: item.name })))}
+        </select>
+      </div>
+      <p class="muted" data-student-filter-status>${state.students.length} aluno(s) encontrado(s).</p>
+      <div class="list-view scrollable-list student-list" data-students-list>
         ${
           state.students
+            .slice()
+            .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "pt-BR"))
             .map(
               (student) => `
-                <article class="list-item">
+                <article class="list-item" data-student-row data-student-name="${escapeHtml(normalizeLabel(student.name))}" data-student-user="${escapeHtml(normalizeLabel(student.user))}" data-student-class="${escapeHtml(normalizeLabel(getClassLabel(student.className)))}">
                   <div>
                     <strong>${escapeHtml(student.name)}</strong>
                     ${student.isJournalist ? '<span class="badge">Aluno jornalista</span>' : ""}
@@ -2057,6 +2067,25 @@ function renderStudentsAdmin(content) {
   const bulkFileInput = $("[data-student-bulk-file]");
   const bulkPreview = $("[data-student-bulk-preview]");
   const bulkImportButton = $("[data-student-bulk-import]");
+
+  const studentSearch = $("[data-student-search]");
+  const studentClassFilter = $("[data-student-class-filter]");
+  const studentFilterStatus = $("[data-student-filter-status]");
+  const applyStudentFilters = () => {
+    const term = normalizeLabel(studentSearch?.value || "");
+    const selectedClass = normalizeLabel(studentClassFilter?.value || "");
+    let visible = 0;
+    $$('[data-student-row]').forEach((row) => {
+      const matchesTerm = !term || row.dataset.studentName.includes(term) || row.dataset.studentUser.includes(term);
+      const matchesClass = !selectedClass || row.dataset.studentClass === selectedClass;
+      const matches = matchesTerm && matchesClass;
+      row.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    if (studentFilterStatus) studentFilterStatus.textContent = `${visible} aluno(s) encontrado(s).`;
+  };
+  studentSearch?.addEventListener("input", applyStudentFilters);
+  studentClassFilter?.addEventListener("change", applyStudentFilters);
 
   const updateBulkPreview = () => {
     if (!bulkStudents.length) {
@@ -2891,13 +2920,9 @@ function studentReportTableV2(grades, allComplete, finalRecovery) {
 
 // ==================== PREFERÊNCIAS E UI ====================
 function setupPreferences() {
-  const theme = localStorage.getItem("theme") || "light";
-  document.documentElement.dataset.theme = theme;
-  $("[data-theme-toggle]").addEventListener("click", () => {
-    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("theme", next);
-  });
+  // O tema acompanha exclusivamente a preferência de aparência do sistema operacional.
+  document.documentElement.removeAttribute("data-theme");
+  localStorage.removeItem("theme");
 }
 
 function setupUi() {

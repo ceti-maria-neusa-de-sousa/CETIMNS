@@ -11,6 +11,24 @@ ALTER TABLE public.news ADD COLUMN IF NOT EXISTS created_by_student_id TEXT;
 
 ALTER TABLE public.students ADD COLUMN IF NOT EXISTS is_journalist BOOLEAN DEFAULT false;
 
+-- Configuracoes institucionais: garante compatibilidade com bancos criados em versoes anteriores.
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS history TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS mission TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS vision TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS "values" TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS address TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
+ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS team JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.school_config ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_config TO anon, authenticated;
+
+DROP POLICY IF EXISTS school_config_full_access ON public.school_config;
+CREATE POLICY school_config_full_access ON public.school_config
+  FOR ALL TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
+
 -- Atualiza bancos antigos, nos quais eventos usavam apenas event_date.
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS date TEXT;
