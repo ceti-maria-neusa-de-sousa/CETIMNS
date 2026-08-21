@@ -954,6 +954,10 @@ textarea.input {
   display: none;
 }
 
+[data-student-subject-card][hidden] {
+  display: none !important;
+}
+
 .list-item {
   display: grid;
   grid-template-columns: 110px 1fr;
