@@ -346,7 +346,7 @@ function normalizeGradeData(grade) {
   
   return {
     ...grade,
-    studentId: grade.studentId || grade.studentid || "",
+    studentId: grade.studentId || grade.studentid || grade.student_id || "",
     subject: grade.subject || grade.subjectname || "",
     className: grade.className || grade.classname || grade.Name || "",
     trimesters: {
@@ -363,9 +363,10 @@ async function saveGradeToSupabase(grade) {
       ...grade,
       studentid: grade.studentId,
       subject: grade.subject,
-      className: grade.className
+      classname: grade.className
     };
     delete gradePayload.studentId;
+    delete gradePayload.className;
     const { error } = await supabase
       .from("grades")
       .upsert(gradePayload, { onConflict: "id" });
@@ -383,14 +384,19 @@ async function saveGradesToSupabase(grades) {
       ...grade,
       studentid: grade.studentId,
       subject: grade.subject,
-      className: grade.className
+      classname: grade.className
     };
     delete payload.studentId;
+    delete payload.className;
     return payload;
   });
-  const { error } = await supabase.from("grades").upsert(gradePayloads, { onConflict: "id" });
+  const { data, error } = await supabase
+    .from("grades")
+    .upsert(gradePayloads, { onConflict: "id" })
+    .select();
   if (error) throw error;
   clearCache("grades");
+  return (data || []).map(normalizeGradeData);
 }
 
 function isValidGradeScore(value) {
@@ -1154,7 +1160,7 @@ function renderTeacherPanel(session) {
     for (const student of teacherStudents) {
       const existing = state.grades.find(
         (g) =>
-          g.studentId === student.id &&
+          idsEqual(g.studentId, student.id) &&
           getSubjectLabel(g.subject) === getSubjectLabel(activeSubject) &&
           getClassLabel(g.className) === getClassLabel(activeClass)
       );
@@ -1193,16 +1199,20 @@ function renderTeacherPanel(session) {
       submitButton.textContent = "Salvando...";
     }
     try {
-      await saveGradesToSupabase(gradeUpdates.map((item) => item.gradeData));
+      const savedGrades = await saveGradesToSupabase(gradeUpdates.map((item) => item.gradeData));
       gradeUpdates.forEach(({ existing, gradeData }) => {
+        const savedGrade = savedGrades.find((item) => idsEqual(item.id, gradeData.id)) || gradeData;
         if (existing) {
           const index = state.grades.indexOf(existing);
-          if (index >= 0) state.grades[index] = gradeData;
+          if (index >= 0) state.grades[index] = savedGrade;
         } else {
-          state.grades.push(gradeData);
+          state.grades.push(savedGrade);
         }
       });
-      toast("Notas salvas com sucesso.");
+      // Recarrega do banco para garantir que a tela mostre exatamente os dados
+      // persistidos, inclusive depois de uma alteração em uma nota já lançada.
+      await loadDataFromSupabase({ forceNetwork: true });
+      toast(`${gradeUpdates.length} nota(s) salva(s) com sucesso.`);
       renderTeacherPanel(session);
     } catch (error) {
       console.error("Erro ao salvar notas:", error);
@@ -2922,7 +2932,7 @@ function renderRecoveryCell(grade, trimester, student) {
 function teacherStudentRow(student, teacher, trimester, subject, className) {
   const grade = state.grades.find(
     (g) =>
-      g.studentId === student.id &&
+      idsEqual(g.studentId, student.id) &&
       getSubjectLabel(g.subject) === getSubjectLabel(subject) &&
       getClassLabel(g.className) === getClassLabel(className)
   ) || {
@@ -2958,7 +2968,7 @@ function setupTeacherGradeLivePreview(teacher, trimester, subject, className) {
 
     const baseGrade = state.grades.find(
       (g) =>
-        g.studentId === student.id &&
+        idsEqual(g.studentId, student.id) &&
         getSubjectLabel(g.subject) === getSubjectLabel(subject) &&
         getClassLabel(g.className) === getClassLabel(className)
     ) || {
