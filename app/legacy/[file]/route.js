@@ -6,8 +6,7 @@ const ROOT_FILES = {
   "app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
   "styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "supabase.js": { file: "supabase.js", type: "text/javascript; charset=utf-8" },
-  "logo-ceti.png": { file: "logo-ceti.png", type: "image/png" },
-  "relatorio-logo-escola.pdf": { file: "relatorio-logo-escola.pdf", type: "application/pdf" }
+  "logo-ceti.png": { file: "logo-ceti.png", type: "image/png" }
 };
 
 export async function GET(_request, { params }) {

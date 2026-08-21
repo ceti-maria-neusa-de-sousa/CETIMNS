@@ -1699,7 +1699,7 @@ function generatePdfReport(title, content, options = {}) {
           body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
           .pdf-header {
             display: grid;
-            grid-template-columns: 82px 1fr;
+            grid-template-columns: 1fr 82px;
             gap: 16px;
             align-items: center;
             border-bottom: 3px solid #253a9b;
@@ -1747,7 +1747,6 @@ function generatePdfReport(title, content, options = {}) {
       </head>
       <body>
         <header class="pdf-header">
-          <img class="pdf-logo" src="${logoUrl}" alt="Logo do CETI Maria Neusa de Sousa">
           <div>
             <p class="school-name">CETI Maria Neusa de Sousa</p>
             <p class="school-info">
@@ -1756,6 +1755,7 @@ function generatePdfReport(title, content, options = {}) {
               <span>Telefone: ${escapeHtml(state.contact.phone)} | E-mail: ${escapeHtml(state.contact.email)}</span>
             </p>
           </div>
+          <img class="pdf-logo" src="${logoUrl}" alt="Logo do CETI Maria Neusa de Sousa">
         </header>
         <h1>${escapeHtml(title)}</h1>
         ${options.studentName ? `<div class="report-context"><span><strong>Estudante:</strong> ${escapeHtml(options.studentName)}</span><span><strong>Turma:</strong> ${escapeHtml(options.className || "Não informada")}</span></div>` : ""}
