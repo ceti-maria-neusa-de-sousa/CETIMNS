@@ -1186,7 +1186,6 @@ function renderTeacherPanel(session) {
           3: { ...normalizeTrimester(existing.trimesters?.[3]) }
         }
       } : {
-        id: makeId(),
         studentId: student.id,
         subject: activeSubject,
         className: getClassLabel(activeClass),
@@ -1205,7 +1204,13 @@ function renderTeacherPanel(session) {
     try {
       const savedGrades = await saveGradesToSupabase(gradeUpdates.map((item) => item.gradeData));
       gradeUpdates.forEach(({ existing, gradeData }) => {
-        const savedGrade = savedGrades.find((item) => idsEqual(item.id, gradeData.id)) || gradeData;
+        const savedGrade = savedGrades.find((item) =>
+          (gradeData.id && idsEqual(item.id, gradeData.id)) ||
+          (!gradeData.id &&
+            idsEqual(item.studentId, gradeData.studentId) &&
+            getSubjectLabel(item.subject) === getSubjectLabel(gradeData.subject) &&
+            getClassLabel(item.className) === getClassLabel(gradeData.className))
+        ) || gradeData;
         if (existing) {
           const index = state.grades.indexOf(existing);
           if (index >= 0) state.grades[index] = savedGrade;
@@ -2568,7 +2573,7 @@ function gradeTemplate() {
 }
 
 function renderGradesAdmin(content) {
-  const editing = adminEditState.gradeId ? state.grades.find((item) => item.id === adminEditState.gradeId) : null;
+  const editing = adminEditState.gradeId ? state.grades.find((item) => idsEqual(item.id, adminEditState.gradeId)) : null;
   const trimestersJson = editing ? JSON.stringify(editing.trimesters || gradeTemplate(), null, 2) : JSON.stringify(gradeTemplate(), null, 2);
   content.innerHTML = `
     <div class="portal-heading">
@@ -2647,13 +2652,13 @@ function renderGradesAdmin(content) {
     const id = String(form.get("id") || "").trim();
     const trimesters = safeJson(String(form.get("trimesters") || ""), gradeTemplate());
     const payload = {
-      id: id || makeId(),
-      studentid: String(form.get("studentId") || "").trim(),
+      ...(id ? { id } : {}),
+      studentId: String(form.get("studentId") || "").trim(),
       subject: String(form.get("subject") || "").trim(),
       className: String(form.get("classname") || "").trim(),
       trimesters: trimesters
     };
-    if (!payload.studentid || !payload.subject || !payload.className) return toast("Preencha todos os campos.");
+    if (!payload.studentId || !payload.subject || !payload.className) return toast("Preencha todos os campos.");
     await upsertRecord("grades", payload, "id", id ? "Nota atualizada." : "Nota salva.");
     adminEditState.gradeId = null;
   });
