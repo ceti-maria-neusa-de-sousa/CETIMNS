@@ -1286,6 +1286,35 @@ function teacherReportTableV2(teacher, grades) {
 }
 
 // ==================== PAINEL DO ALUNO ====================
+function getTeachersForSubjectAndClass(subject, className) {
+  const subjectLabel = getSubjectLabel(subject);
+  const classLabel = getClassLabel(className);
+  return state.teachers.filter((teacher) =>
+    getTeacherSubjectClassPairs(teacher).some(
+      (pair) => getSubjectLabel(pair.subject) === subjectLabel && getClassLabel(pair.className) === classLabel
+    )
+  );
+}
+
+function getStudentSubjectEntries(student) {
+  const className = getClassLabel(student.className);
+  const subjects = new Set(getSubjectsForClass(className));
+  state.grades
+    .filter((grade) => idsEqual(grade.studentId, student.id))
+    .forEach((grade) => subjects.add(getSubjectLabel(grade.subject)));
+
+  return [...subjects]
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, "pt-BR"))
+    .map((subject) => ({
+      subject,
+      grade: state.grades.find(
+        (grade) => idsEqual(grade.studentId, student.id) && getSubjectLabel(grade.subject) === subject
+      ) || null,
+      teachers: getTeachersForSubjectAndClass(subject, className)
+    }));
+}
+
 function renderStudentPanel(session) {
   const root = $("[data-login-root]");
   const student = state.students.find((item) => item.id === session.id);
@@ -1301,12 +1330,10 @@ function renderStudentPanel(session) {
   }
 
   const studentClassInfo = getStudentClassInfo(student);
-  const allowedSubjects = studentClassInfo.subjects.map(normalizeLabel);
-  const grades = state.grades.filter(
-    (grade) => grade.studentId === student.id && allowedSubjects.includes(normalizeLabel(getSubjectLabel(grade.subject)))
-  );
-  const allGradesComplete = grades.length > 0 && grades.every(
-    (grade) => ["1", "2", "3"].every((trimester) => getTrimesterFinalAverage(grade, trimester) !== "0.0")
+  const subjectEntries = getStudentSubjectEntries(student);
+  const grades = subjectEntries.map((entry) => entry.grade).filter(Boolean);
+  const allGradesComplete = subjectEntries.length > 0 && subjectEntries.every(
+    (entry) => entry.grade && ["1", "2", "3"].every((trimester) => getTrimesterFinalAverage(entry.grade, trimester) !== "0.0")
   );
   const averages = grades.map((grade) => Number(gradeAverage(grade)));
   const generalAverage = averages.filter((a) => a > 0).length
@@ -1330,7 +1357,7 @@ function renderStudentPanel(session) {
       </div>
       <div class="row-actions">
         ${student.isJournalist ? '<button class="button primary" type="button" data-student-newsroom>Jornal escolar</button>' : ""}
-        <button class="button ghost" data-student-report>Relatório geral</button>
+        <button class="button ghost" data-student-report>Ver boletim</button>
         <button class="button ghost" data-logout>Sair</button>
       </div>
     </div>
@@ -1341,7 +1368,7 @@ function renderStudentPanel(session) {
     </div>
     <div class="dashboard-grid">
       ${miniStat("Média geral", generalAverage)}
-      ${miniStat("Disciplinas", grades.length)}
+      ${miniStat("Disciplinas", subjectEntries.length)}
       ${miniStat("Situação", allGradesComplete ? (finalRecovery ? "Recuperação final" : "Aprovado") : "Pendente")}
     </div>
     <article class="panel recovery-panel ${hasRecoveryTrimester || finalRecovery ? "warning" : ""}">
@@ -1356,14 +1383,14 @@ function renderStudentPanel(session) {
       }</strong>
     </article>
     <div class="grade-grid">
-      ${grades.map((grade) => studentGradeCard(grade)).join("") || emptyState("Nenhuma nota cadastrada para este aluno.")}
+      ${subjectEntries.map((entry) => studentGradeCard(entry.grade, entry.subject, entry.teachers)).join("") || emptyState("Nenhuma disciplina vinculada à turma.")}
     </div>
     <div class="panel report-panel" data-student-report-panel hidden>
       <div class="portal-heading compact">
-        <h2>Relatório geral do aluno</h2>
+        <h2>Boletim escolar</h2>
         <button class="button ghost" data-pdf-report>Gerar PDF</button>
       </div>
-      ${studentReportTable(grades, allGradesComplete, finalRecovery)}
+      ${studentReportTable(subjectEntries, allGradesComplete, finalRecovery)}
     </div>
   `;
 
@@ -1385,7 +1412,7 @@ function renderStudentPanel(session) {
   });
 
   $("[data-pdf-report]").addEventListener("click", () => {
-    generatePdfReport(`Relatório — ${student.name}`, studentReportTable(grades, allGradesComplete, finalRecovery));
+    generatePdfReport(`Boletim — ${student.name}`, studentReportTable(subjectEntries, allGradesComplete, finalRecovery));
   });
 }
 
@@ -1458,30 +1485,34 @@ function renderStudentNewsroom(session, student) {
   $("[data-logout]").addEventListener("click", () => { currentStudentView = "bulletin"; clearSession(); renderLoginPortal(); });
 }
 
-function studentGradeCard(grade) {
-  const average = gradeAverage(grade);
-  const t1Recovery = getTrimester(grade, "1").recovery;
-  const t2Recovery = getTrimester(grade, "2").recovery;
-  const t3Recovery = getTrimester(grade, "3").recovery;
+function studentGradeCard(grade, subject, teachers = []) {
+  const hasGrade = Boolean(grade);
+  const gradeData = grade || { trimesters: {} };
+  const average = gradeAverage(gradeData);
+  const t1Recovery = getTrimester(gradeData, "1").recovery;
+  const t2Recovery = getTrimester(gradeData, "2").recovery;
+  const t3Recovery = getTrimester(gradeData, "3").recovery;
   const approved = Number(average) >= 6;
+  const teacherNames = teachers.map((teacher) => teacher.name).filter(Boolean).join(", ");
 
   return `
     <article class="panel grade-card">
       <div class="grade-card-head">
         <div>
-          <span class="badge">${escapeHtml(getSubjectLabel(grade.subject))}</span>
+          <span class="badge">${escapeHtml(subject || getSubjectLabel(gradeData.subject))}</span>
+          <p class="muted">Professor(a): ${escapeHtml(teacherNames || "Não vinculado")}</p>
           <h3>Média final ${average}</h3>
         </div>
-        <strong class="badge ${approved ? "success" : "warning"}">${approved ? "Aprovado" : "Recuperação"}</strong>
+        <strong class="badge ${hasGrade && approved ? "success" : "warning"}">${hasGrade ? (approved ? "Aprovado" : "Em andamento") : "Aguardando notas"}</strong>
       </div>
       <div class="grade-chart" aria-label="Grafico de notas">
-        ${gradeBar("1T", trimesterAverage(grade, "1"), t1Recovery)}
-        ${gradeBar("2T", trimesterAverage(grade, "2"), t2Recovery)}
-        ${gradeBar("3T", trimesterAverage(grade, "3"), t3Recovery)}
+        ${gradeBar("1T", trimesterAverage(gradeData, "1"), t1Recovery)}
+        ${gradeBar("2T", trimesterAverage(gradeData, "2"), t2Recovery)}
+        ${gradeBar("3T", trimesterAverage(gradeData, "3"), t3Recovery)}
         ${gradeBar("Média", average, false)}
       </div>
       <div class="trimester-grid">
-        ${["1", "2", "3"].map((trimester) => trimesterMiniTable(grade, trimester)).join("")}
+        ${["1", "2", "3"].map((trimester) => trimesterMiniTable(gradeData, trimester)).join("")}
       </div>
     </article>
   `;
@@ -1501,21 +1532,24 @@ function trimesterMiniTableV2(grade, trimester) {
   `;
 }
 
-function studentReportTable(grades, allComplete, finalRecovery) {
-  const rows = grades
-    .map((grade) => {
-      const t1Recovery = getTrimester(grade, "1").recovery;
-      const t2Recovery = getTrimester(grade, "2").recovery;
-      const t3Recovery = getTrimester(grade, "3").recovery;
-      const approved = Number(gradeAverage(grade)) >= 6;
+function studentReportTable(subjectEntries, allComplete, finalRecovery) {
+  const rows = subjectEntries
+    .map(({ subject, grade, teachers }) => {
+      const gradeData = grade || { trimesters: {} };
+      const t1Recovery = getTrimester(gradeData, "1").recovery;
+      const t2Recovery = getTrimester(gradeData, "2").recovery;
+      const t3Recovery = getTrimester(gradeData, "3").recovery;
+      const approved = Number(gradeAverage(gradeData)) >= 6;
+      const teacherNames = teachers.map((teacher) => teacher.name).filter(Boolean).join(", ");
       return `
         <tr>
-          <td>${escapeHtml(getSubjectLabel(grade.subject))}</td>
-          <td>${trimesterAverage(grade, "1")} ${t1Recovery ? "(Rec)" : ""}</td>
-          <td>${trimesterAverage(grade, "2")} ${t2Recovery ? "(Rec)" : ""}</td>
-          <td>${trimesterAverage(grade, "3")} ${t3Recovery ? "(Rec)" : ""}</td>
-          <td>${gradeAverage(grade)}</td>
-          <td>${allComplete ? (approved ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação") : "Pendente"}</td>
+          <td>${escapeHtml(subject)}</td>
+          <td>${escapeHtml(teacherNames || "Não vinculado")}</td>
+          <td>${trimesterAverage(gradeData, "1")} ${t1Recovery ? "(Rec)" : ""}</td>
+          <td>${trimesterAverage(gradeData, "2")} ${t2Recovery ? "(Rec)" : ""}</td>
+          <td>${trimesterAverage(gradeData, "3")} ${t3Recovery ? "(Rec)" : ""}</td>
+          <td>${gradeAverage(gradeData)}</td>
+          <td>${grade ? (allComplete ? (approved ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação") : "Pendente") : "Sem notas"}</td>
         </tr>
       `;
     })
@@ -1525,9 +1559,9 @@ function studentReportTable(grades, allComplete, finalRecovery) {
     <div class="table-scroll">
       <table class="report-table">
         <thead>
-          <tr><th>Disciplina</th><th>1T</th><th>2T</th><th>3T</th><th>Final</th><th>Situação</th></tr>
+          <tr><th>Disciplina</th><th>Professor(a)</th><th>1T</th><th>2T</th><th>3T</th><th>Final</th><th>Situação</th></tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="6">Nenhuma nota registrada.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="7">Nenhuma disciplina vinculada à turma.</td></tr>`}</tbody>
       </table>
     </div>
   `;
