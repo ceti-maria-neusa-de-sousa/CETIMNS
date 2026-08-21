@@ -54,6 +54,7 @@ let currentTeacherTrimester = "1";
 let currentTeacherSubject = "";
 let currentTeacherClass = "";
 let currentStudentView = "bulletin";
+let isRefreshingData = false;
 let adminEditState = {
   classId: null,
   subjectId: null,
@@ -102,9 +103,12 @@ const parseFileClassName = (fileName) => {
 
 const createStudentUsername = (name, existingUsernames = new Set(), preferredUser = "") => {
   const preferred = normalizeUser(preferredUser || "");
-  const base = preferred || normalizeUser(name)
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+  const firstName = normalizeUser(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9]+/)
+    .find(Boolean);
+  const base = preferred || firstName || "aluno";
   let user = base || `aluno${Math.floor(Math.random() * 100000)}`;
   let counter = 1;
   while (existingUsernames.has(user) || !user) {
@@ -213,23 +217,29 @@ function hasAllGrades(studentId) {
 }
 
 // ==================== FUNÇÕES DE DADOS ====================
-async function loadDataFromSupabase() {
+async function loadDataFromSupabase({ useCache = false, forceNetwork = false } = {}) {
   try {
+    if (isRefreshingData) return false;
+    isRefreshingData = true;
     console.log("Carregando dados do Supabase...");
 
-    const classesData = await safeTableSelect("classes");
-    const subjectsData = await safeTableSelect("subjects");
-    const studentsData = await safeTableSelect("students");
-    const teachersData = await safeTableSelect("teachers");
-    const teacherAssignmentsData = await safeTableSelect("teacher_assignments", undefined, true);
-    const gradesData = await safeTableSelect("grades");
-    const newsData = await safeTableSelect("news");
-    const eventsData = await safeTableSelect("events");
-    const activitiesData = await safeTableSelect("activities");
-    const achievementsData = await safeTableSelect("achievements");
-    const configData = await safeTableSelect("school_config", (query) =>
-      query.order("created_at", { ascending: false }).limit(1)
-    );
+    const loadTable = (table, transform, optional) => {
+      const request = () => safeTableSelect(table, transform, optional);
+      return useCache ? fetchWithCache(table, "all", request, { force: forceNetwork }) : request();
+    };
+    const [classesData, subjectsData, studentsData, teachersData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
+      loadTable("classes"),
+      loadTable("subjects"),
+      loadTable("students"),
+      loadTable("teachers"),
+      loadTable("teacher_assignments", undefined, true),
+      loadTable("grades"),
+      loadTable("news"),
+      loadTable("events"),
+      loadTable("activities"),
+      loadTable("achievements"),
+      loadTable("school_config", (query) => query.order("created_at", { ascending: false }).limit(1))
+    ]);
 
     state.classes = (classesData || [])
       .map((item) => ({ ...item, name: item.name || "" }))
@@ -265,8 +275,12 @@ async function loadDataFromSupabase() {
     };
 
     console.log("Dados carregados com sucesso");
+    return true;
   } catch (error) {
     console.error("Erro ao carregar dados do Supabase:", error);
+    return false;
+  } finally {
+    isRefreshingData = false;
   }
 }
 
@@ -550,12 +564,16 @@ function getGradeSnapshot(grade, trimester, values = {}) {
 }
 
 function route() {
-  const page = (location.hash || "#inicio").replace("#", "").split("?")[0];
+  let page = (location.hash || "#inicio").replace("#", "").split("?")[0];
+  if (page === "top") page = "inicio";
   $$(".page").forEach((section) => section.classList.toggle("active", section.dataset.page === page));
   $$(".nav-link").forEach((link) => link.classList.toggle("active", link.dataset.route === page));
   $("[data-nav-panel]").classList.remove("open");
   document.body.classList.remove("no-scroll");
   $("#main").focus({ preventScroll: true });
+  if ((location.hash || "").replace("#", "").split("?")[0] === "top") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   if (page === "login") renderLoginPortal();
   if (page === "noticia") renderNewsDetail();
 }
@@ -893,7 +911,12 @@ async function findLogin(user, password) {
       .select("*")
       .ilike("user", username)
       .eq("password", secret);
-    if (students?.length) return { role: "student", id: students[0].id, name: students[0].name };
+    if (students?.length) return {
+      role: "student",
+      id: students[0].id,
+      name: students[0].name,
+      mustChangePassword: Boolean(students[0].must_change_password)
+    };
 
     if (username === "admin" && secret === "cetimns26") {
       return { role: "admin", name: "Administrador", id: "local-admin-fallback" };
@@ -924,6 +947,10 @@ function renderLoginPortal() {
       return;
     }
     if (session?.role === "student") {
+      if (session.mustChangePassword) {
+        renderStudentPasswordChange(session);
+        return;
+      }
       renderStudentPanel(session);
       return;
     }
@@ -2002,6 +2029,44 @@ function renderCatalogAdmin(content) {
   });
 }
 
+function renderStudentPasswordChange(session) {
+  const root = $("[data-login-root]");
+  root.innerHTML = `
+    <form class="panel contact-form login-card" data-student-password-form>
+      <h2>Crie sua nova senha</h2>
+      <p class="muted">Por segurança, a senha padrão deve ser alterada antes de acessar o portal.</p>
+      <label>Nova senha<input class="input" name="password" type="password" minlength="4" required autocomplete="new-password"></label>
+      <label>Confirmar nova senha<input class="input" name="confirmation" type="password" minlength="4" required autocomplete="new-password"></label>
+      <button class="button primary" type="submit">Salvar nova senha</button>
+      <button class="button ghost" type="button" data-logout>Sair</button>
+    </form>
+  `;
+  $("[data-student-password-form]").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const password = normalizePassword(form.get("password"));
+    if (password !== normalizePassword(form.get("confirmation"))) return toast("As senhas não conferem.");
+    if (password === DEFAULT_STUDENT_PASSWORD) return toast("Escolha uma senha diferente da senha padrão.");
+    const { error } = await supabase
+      .from("students")
+      .update({ password, must_change_password: false })
+      .eq("id", session.id);
+    if (error) {
+      console.error("Erro ao alterar senha do aluno:", error);
+      return toast("Não foi possível alterar a senha. Tente novamente.");
+    }
+    clearCache("students");
+    setSession({ ...session, mustChangePassword: false });
+    await loadDataFromSupabase();
+    toast("Senha alterada com sucesso.");
+    renderLoginPortal();
+  });
+  $("[data-logout]").addEventListener("click", () => {
+    clearSession();
+    renderLoginForm();
+  });
+}
+
 function renderStudentsAdmin(content) {
   const editing = adminEditState.studentId ? state.students.find((item) => idsEqual(item.id, adminEditState.studentId)) : null;
   const selectedClassName = getClassLabel(editing?.className || "");
@@ -2031,8 +2096,8 @@ function renderStudentsAdmin(content) {
       <div class="panel" style="margin-top: 0.5rem;" data-student-class-info>
         ${renderClassLinkInfo(selectedClassName)}
       </div>
-      <label>Usuário<input class="input" name="user" value="${escapeHtml(editing?.user || "")}"></label>
-      <label>Senha<input class="input" name="password" type="text" value="${escapeHtml(editing?.password || "")}" placeholder="${editing ? "" : "1234"}"></label>
+      <label>Usuário<input class="input" name="user" value="${escapeHtml(editing?.user || "")}" readonly></label>
+      <p class="muted">O usuário é criado automaticamente usando o primeiro nome. Se já existir, o sistema acrescenta um número. A senha inicial é <strong>1234</strong> e deve ser alterada no primeiro acesso.</p>
       <label class="checkbox-row"><input type="checkbox" name="isJournalist"${editing?.isJournalist ? " checked" : ""}> Aluno jornalista — pode criar matérias para o jornal escolar</label>
       <div class="row-actions">
         <button class="button primary" type="submit">${editing ? "Atualizar aluno" : "Salvar aluno"}</button>
@@ -2069,6 +2134,7 @@ function renderStudentsAdmin(content) {
                   </div>
                   <div class="row-actions">
                     <button class="button ghost" type="button" data-student-edit data-id="${escapeHtml(student.id)}">Editar</button>
+                    <button class="button ghost" type="button" data-student-reset-password data-id="${escapeHtml(student.id)}">Restaurar senha</button>
                     <button class="button ghost" type="button" data-student-delete data-id="${escapeHtml(student.id)}">Excluir</button>
                   </div>
                 </article>
@@ -2160,6 +2226,7 @@ function renderStudentsAdmin(content) {
             className: student.className,
             user,
             password: DEFAULT_STUDENT_PASSWORD,
+            must_change_password: true,
             is_journalist: false
           };
         })
@@ -2192,16 +2259,19 @@ function renderStudentsAdmin(content) {
     event.preventDefault();
     const form = new FormData(event.target);
     const id = String(form.get("id") || "").trim();
-    let password = String(form.get("password") || "").trim();
-    if (!password && !id) password = DEFAULT_STUDENT_PASSWORD;
+    const existingUsernames = new Set(state.students.filter((student) => !id || !idsEqual(student.id, id)).map((student) => normalizeUser(student.user || "")));
+    const user = createStudentUsername(String(form.get("name") || ""), existingUsernames, id ? String(form.get("user") || "") : "");
     const payload = {
       id: id || makeId(),
       name: String(form.get("name") || "").trim(),
       className: String(form.get("className") || "").trim(),
-      user: String(form.get("user") || "").trim() || null,
-      password: password || null,
+      user,
       is_journalist: Boolean(form.get("isJournalist"))
     };
+    if (!id) {
+      payload.password = DEFAULT_STUDENT_PASSWORD;
+      payload.must_change_password = true;
+    }
     if (!payload.name || !payload.className) return toast("Informe nome e turma.");
     await upsertRecord("students", payload, "id", id ? "Aluno atualizado." : "Aluno salvo.");
     adminEditState.studentId = null;
@@ -2215,6 +2285,13 @@ function renderStudentsAdmin(content) {
     });
   }
 
+  const studentNameInput = $("[data-student-form] [name='name']");
+  const studentUserInput = $("[data-student-form] [name='user']");
+  studentNameInput?.addEventListener("input", () => {
+    if (editing || !studentUserInput) return;
+    studentUserInput.value = createStudentUsername(studentNameInput.value, new Set(state.students.map((student) => normalizeUser(student.user || ""))));
+  });
+
   $$("[data-student-edit]").forEach((button) =>
     button.addEventListener("click", () => {
       adminEditState.studentId = button.dataset.id;
@@ -2225,6 +2302,21 @@ function renderStudentsAdmin(content) {
   $$("[data-student-delete]").forEach((button) =>
     button.addEventListener("click", async () => {
       await deleteRecord("students", "id", button.dataset.id, "Aluno removido.");
+    })
+  );
+
+  $$('[data-student-reset-password]').forEach((button) =>
+    button.addEventListener("click", async () => {
+      const student = state.students.find((item) => idsEqual(item.id, button.dataset.id));
+      if (!student) return;
+      if (!window.confirm(`Restaurar a senha de ${student.name} para ${DEFAULT_STUDENT_PASSWORD}? O aluno deverá criar uma nova senha ao entrar.`)) return;
+      const { error } = await supabase.from("students").update({ password: DEFAULT_STUDENT_PASSWORD, must_change_password: true }).eq("id", student.id);
+      if (error) {
+        console.error("Erro ao restaurar senha do aluno:", error);
+        return toast("Não foi possível restaurar a senha.");
+      }
+      clearCache("students");
+      await syncAdminData(`Senha de ${student.name} restaurada para ${DEFAULT_STUDENT_PASSWORD}.`);
     })
   );
 
@@ -2962,12 +3054,25 @@ function setupUi() {
 }
 
 // ==================== INICIALIZAÇÃO ====================
+async function refreshDataInBackground() {
+  if (document.hidden) return;
+  const updated = await loadDataFromSupabase({ useCache: true, forceNetwork: true });
+  if (!updated) return;
+  renderPublic();
+  if ((location.hash || "").replace("#", "").split("?")[0] === "noticia") renderNewsDetail();
+}
+
 window.addEventListener("hashchange", route);
 document.addEventListener("DOMContentLoaded", async () => {
   document.title = `${SCHOOL_TITLE} | Portal`;
-  await loadDataFromSupabase();
+  await loadDataFromSupabase({ useCache: true });
   renderPublic();
   setupUi();
   setupPreferences();
   route();
+  void refreshDataInBackground();
+  window.setInterval(refreshDataInBackground, 30000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) void refreshDataInBackground();
+  });
 });

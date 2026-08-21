@@ -25,11 +25,11 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 const CACHE_PREFIX = "ceti_cache_";
 const CACHE_TIME = 5 * 60 * 1000; // 5 minutos
 
-export async function fetchWithCache(table, key, fetchFn) {
+export async function fetchWithCache(table, key, fetchFn, options = {}) {
   const cacheKey = `${CACHE_PREFIX}${table}_${key}`;
   const cached = localStorage.getItem(cacheKey);
   
-  if (cached) {
+  if (cached && !options.force) {
     const { data, timestamp } = JSON.parse(cached);
     if (Date.now() - timestamp < CACHE_TIME) {
       return data;

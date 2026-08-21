@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS students (
   classname TEXT NOT NULL,
   user TEXT UNIQUE,
   password TEXT,
+  must_change_password BOOLEAN NOT NULL DEFAULT false,
   is_journalist BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
@@ -131,6 +132,7 @@ ALTER TABLE news ADD COLUMN IF NOT EXISTS published BOOLEAN DEFAULT false;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS files JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS created_by_student_id TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS is_journalist BOOLEAN DEFAULT false;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS category TEXT;
