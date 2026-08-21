@@ -983,6 +983,10 @@ function renderLoginForm() {
       return;
     }
     setSession(session);
+    if (session.role === "teacher") {
+      currentTeacherClass = "";
+      currentTeacherSubject = "";
+    }
     toast("Login realizado com sucesso.");
     renderLoginPortal();
   });
@@ -999,25 +1003,14 @@ function renderTeacherPanel(session) {
   }
   const teacherClasses = getTeacherClasses(teacher);
   const teacherSubjects = getTeacherSubjects(teacher);
-  if (!teacherSubjects.length && teacher.subject) {
-    teacherSubjects.push(...parseTeacherSubjectList(teacher.subject));
-  }
-  if (!teacherSubjects.includes(currentTeacherSubject)) currentTeacherSubject = teacherSubjects[0] || "";
-  if (!teacherClasses.includes(currentTeacherClass)) currentTeacherClass = teacherClasses[0] || "";
+  if (!teacherSubjects.length && teacher.subject) teacherSubjects.push(...parseTeacherSubjectList(teacher.subject));
+  if (!teacherClasses.some((className) => normalizeLabel(className) === normalizeLabel(currentTeacherClass))) currentTeacherClass = "";
+  const subjectsForSelectedClass = currentTeacherClass ? getValidSubjectsForTeacherClass(teacher, currentTeacherClass) : [];
+  if (!subjectsForSelectedClass.some((subject) => normalizeLabel(subject) === normalizeLabel(currentTeacherSubject))) currentTeacherSubject = "";
 
-  const selectedSubject = currentTeacherSubject || teacherSubjects[0] || "";
-  const selectedClass = currentTeacherClass || teacherClasses[0] || "";
-  const validPairExists = getTeacherSubjectClassPairs(teacher).some(
-    (pair) => getSubjectLabel(pair.subject) === getSubjectLabel(selectedSubject) && getClassLabel(pair.className) === getClassLabel(selectedClass)
-  );
-  if (!validPairExists) {
-    const fallbackPair = getTeacherSubjectClassPairs(teacher)[0];
-    currentTeacherSubject = fallbackPair?.subject || selectedSubject;
-    currentTeacherClass = fallbackPair?.className || selectedClass;
-  }
-  const activeSubject = currentTeacherSubject || selectedSubject;
-  const activeClass = currentTeacherClass || selectedClass;
-  const teacherStudents = activeClass
+  const activeSubject = currentTeacherSubject;
+  const activeClass = currentTeacherClass;
+  const teacherStudents = activeClass && activeSubject
     ? state.students.filter((student) => getClassLabel(student.className) === activeClass)
     : [];
   const teacherGrades = state.grades.filter(
@@ -1030,7 +1023,7 @@ function renderTeacherPanel(session) {
     <div class="portal-heading">
       <div>
         <h2>Professor: ${escapeHtml(teacher.name)}</h2>
-        <p class="muted">Disciplinas: ${teacherSubjects.map(escapeHtml).join(", ") || "Não vinculadas"}; turmas: ${teacherClasses.map(escapeHtml).join(", ") || "não vinculadas"}.</p>
+        <p class="muted">Selecione uma turma e, depois, a disciplina desejada para lançar as notas.</p>
       </div>
       <div class="row-actions">
         <button class="button ghost" data-teacher-report>Relatório da disciplina</button>
@@ -1045,21 +1038,23 @@ function renderTeacherPanel(session) {
           <p class="muted">Use os botões para trocar a disciplina e a turma antes de lançar as notas.</p>
         </div>
       </div>
-      <div class="segmented" role="tablist" aria-label="Disciplinas do professor">
-        ${teacherSubjects
+      <div class="segmented" role="tablist" aria-label="Turmas do professor">
+        ${teacherClasses
+          .map(
+            (className) =>
+              `<button type="button" class="${normalizeLabel(activeClass) === normalizeLabel(className) ? "active" : ""}" data-teacher-class="${escapeHtml(className)}">${escapeHtml(className)}</button>`
+          )
+          .join("") || `<span class="muted">Nenhuma turma vinculada.</span>`}
+      </div>
+      <div class="segmented" role="tablist" aria-label="Disciplinas da turma selecionada" style="margin-top:12px;">
+        ${activeClass
+          ? subjectsForSelectedClass
           .map(
             (subject) =>
               `<button type="button" class="${normalizeLabel(activeSubject) === normalizeLabel(subject) ? "active" : ""}" data-teacher-subject="${escapeHtml(subject)}">${escapeHtml(subject)}</button>`
           )
-          .join("") || `<span class="muted">Nenhuma disciplina vinculada.</span>`}
-      </div>
-      <div class="segmented" role="tablist" aria-label="Turmas do professor" style="margin-top:12px;">
-        ${teacherClasses
-          .map(
-            (className) =>
-              `<button type="button" class="${normalizeLabel(activeClass) === normalizeLabel(className) ? "active" : ""}" data-teacher-class="${escapeHtml(className)}" ${getValidClassesForTeacherSubject(teacher, activeSubject).length && !getValidClassesForTeacherSubject(teacher, activeSubject).some((item) => normalizeLabel(item) === normalizeLabel(className)) ? "disabled" : ""}>${escapeHtml(className)}</button>`
-          )
-          .join("") || `<span class="muted">Nenhuma turma vinculada.</span>`}
+          .join("") || `<span class="muted">Nenhuma disciplina vinculada a esta turma.</span>`
+          : `<span class="muted">Escolha uma turma para ver as disciplinas.</span>`}
       </div>
     </div>
     <div class="panel">
@@ -1077,9 +1072,9 @@ function renderTeacherPanel(session) {
           <div class="gradebook-head">
             <span>Estudante</span><span>N1</span><span>N2</span><span>N3</span><span>Média</span><span>Recuperação</span><span>Situação</span>
           </div>
-          ${teacherStudents.map((student) => teacherStudentRow(student, teacher, currentTeacherTrimester, activeSubject, activeClass)).join("") || emptyState("Nenhum aluno cadastrado na turma selecionada.")}
+          ${teacherStudents.map((student) => teacherStudentRow(student, teacher, currentTeacherTrimester, activeSubject, activeClass)).join("") || emptyState(activeClass ? "Escolha uma disciplina para lançar as notas." : "Escolha uma turma e depois uma disciplina.")}
         </div>
-        <button class="button primary" type="submit">Salvar ${currentTeacherTrimester} trimestre</button>
+        <button class="button primary" type="submit" ${activeClass && activeSubject ? "" : "disabled"}>Salvar ${currentTeacherTrimester} trimestre</button>
       </form>
     </div>
     <div class="panel report-panel" data-teacher-report-panel hidden>
@@ -1106,8 +1101,6 @@ function renderTeacherPanel(session) {
   $$("[data-teacher-subject]").forEach((button) =>
     button.addEventListener("click", () => {
       currentTeacherSubject = button.dataset.teacherSubject;
-      const nextClass = getValidClassesForTeacherSubject(teacher, currentTeacherSubject)[0];
-      if (nextClass) currentTeacherClass = nextClass;
       renderTeacherPanel(session);
     })
   );
@@ -1115,8 +1108,7 @@ function renderTeacherPanel(session) {
   $$("[data-teacher-class]").forEach((button) =>
     button.addEventListener("click", () => {
       currentTeacherClass = button.dataset.teacherClass;
-      const nextSubject = getValidSubjectsForTeacherClass(teacher, currentTeacherClass)[0];
-      if (nextSubject) currentTeacherSubject = nextSubject;
+      currentTeacherSubject = "";
       renderTeacherPanel(session);
     })
   );
@@ -1135,6 +1127,7 @@ function renderTeacherPanel(session) {
 
   $("[data-teacher-grade-form]").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!activeClass || !activeSubject) return toast("Escolha uma turma e uma disciplina antes de lançar as notas.");
     
     for (const student of teacherStudents) {
       const existing = state.grades.find(
