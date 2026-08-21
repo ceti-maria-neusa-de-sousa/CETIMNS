@@ -361,12 +361,15 @@ async function saveGradeToSupabase(grade) {
   try {
     const gradePayload = {
       ...grade,
-      studentid: grade.studentId,
+      studentId: grade.studentId,
       subject: grade.subject,
-      classname: grade.className
+      className: grade.className
     };
-    delete gradePayload.studentId;
-    delete gradePayload.className;
+    // A tabela publicada usa os nomes em camelCase. Remova possíveis aliases
+    // recebidos de versões antigas para que o Supabase não rejeite o registro.
+    delete gradePayload.studentid;
+    delete gradePayload.student_id;
+    delete gradePayload.classname;
     const { error } = await supabase
       .from("grades")
       .upsert(gradePayload, { onConflict: "id" });
@@ -382,12 +385,13 @@ async function saveGradesToSupabase(grades) {
   const gradePayloads = grades.map((grade) => {
     const payload = {
       ...grade,
-      studentid: grade.studentId,
+      studentId: grade.studentId,
       subject: grade.subject,
-      classname: grade.className
+      className: grade.className
     };
-    delete payload.studentId;
-    delete payload.className;
+    delete payload.studentid;
+    delete payload.student_id;
+    delete payload.classname;
     return payload;
   });
   const { data, error } = await supabase
