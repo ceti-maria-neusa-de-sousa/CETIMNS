@@ -1504,7 +1504,7 @@ function renderStudentPanel(session) {
     generatePdfReport(
       `Boletim escolar - ${student.name}`,
       studentPdfReportTable(subjectEntries, allGradesComplete, finalRecovery),
-      { studentName: student.name, className: getClassLabel(student.className) }
+      { landscape: true, studentName: student.name, className: getClassLabel(student.className) }
     );
   });
 }
@@ -1736,6 +1736,7 @@ function generatePdfReport(title, content, options = {}) {
           th { background: #e8eefc; color: #13235f; font-weight: 800; }
           .student-name, .student-sheet td:first-child { text-align: left; }
           .average { font-weight: 800; }
+          .low-score { color: #b91c1c; font-weight: 800; }
           .table-scroll { overflow: visible; }
           .report-meta { margin-bottom: 12px; font-size: 11px; text-align: center; }
           .report-context { border: 1px solid #334155; padding: 8px 10px; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 11px; }
@@ -3105,12 +3106,18 @@ function teacherPdfReportTable(grades, subject, className) {
 }
 
 function studentPdfReportTable(subjectEntries, allComplete, finalRecovery) {
+  const scoreCell = (grade, trimester, field) => {
+    const value = Number(getTrimester(grade, trimester)[field] || 0);
+    return `<td class="${value < 6 ? "low-score" : ""}">${value.toFixed(1)}</td>`;
+  };
+  const averageCell = (value) => `<td class="average ${Number(value) < 6 ? "low-score" : ""}">${value}</td>`;
   const rows = subjectEntries.map(({ subject, grade }) => {
     const data = grade || { trimesters: {} };
     const status = !grade ? "Sem notas" : allComplete ? Number(gradeAverage(data)) >= 6 ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação" : "Em andamento";
-    return `<tr><td>${escapeHtml(subject)}</td><td>${trimesterAverage(data, "1")}</td><td>${trimesterAverage(data, "2")}</td><td>${trimesterAverage(data, "3")}</td><td class="average">${gradeAverage(data)}</td><td>${status}</td></tr>`;
+    const trimesterCells = ["1", "2", "3"].map((trimester) => `${scoreCell(data, trimester, "n1")}${scoreCell(data, trimester, "n2")}${scoreCell(data, trimester, "n3")}${averageCell(getTrimesterFinalAverage(data, trimester))}`).join("");
+    return `<tr><td class="student-name">${escapeHtml(subject)}</td>${trimesterCells}${averageCell(gradeAverage(data))}<td>${status}</td></tr>`;
   }).join("");
-  return `<section class="official-report"><table class="student-sheet"><thead><tr><th>Disciplina</th><th>1º trimestre</th><th>2º trimestre</th><th>3º trimestre</th><th>Média final</th><th>Situação</th></tr></thead><tbody>${rows || `<tr><td colspan="6">Nenhuma disciplina vinculada.</td></tr>`}</tbody></table><p class="legend">Este boletim apresenta somente as disciplinas e notas do estudante identificado acima.</p></section>`;
+  return `<section class="official-report"><table class="grade-sheet student-sheet"><thead><tr><th rowspan="2">Disciplina</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>N1</th><th>N2</th><th>N3</th><th>MF</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="15">Nenhuma disciplina vinculada.</td></tr>`}</tbody></table><p class="legend">N1, N2 e N3: notas trimestrais. MF: média final do trimestre. Notas e médias abaixo de 6,0 aparecem em vermelho.</p></section>`;
 }
 
 function trimesterMiniTable(grade, trimester) {
