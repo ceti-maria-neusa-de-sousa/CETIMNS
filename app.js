@@ -1628,23 +1628,24 @@ function trimesterMiniTableV2(grade, trimester) {
 function studentReportTable(subjectEntries, allComplete, finalRecovery) {
   const scoreCell = (grade, trimester, field) => {
     const value = Number(getTrimester(grade, trimester)[field] || 0);
-    return `<td class="${value < 6 ? "score-low" : ""}">${value.toFixed(1)}</td>`;
+    const hasLaunchedScore = hasTrimesterScores(grade, trimester);
+    return `<td class="${hasLaunchedScore && value < 6 ? "score-low" : ""}">${value.toFixed(1)}</td>`;
   };
-  const averageCell = (value) => `<td class="score-average ${Number(value) < 6 ? "score-low" : ""}">${value}</td>`;
+  const averageCell = (value, hasLaunchedScore) => `<td class="score-average ${hasLaunchedScore && Number(value) < 6 ? "score-low" : ""}">${value}</td>`;
   const rows = subjectEntries
     .map(({ subject, grade, teachers }) => {
       const gradeData = grade || { trimesters: {} };
       const approved = Number(gradeAverage(gradeData)) >= 6;
       const teacherNames = teachers.map((teacher) => teacher.name).filter(Boolean).join(", ");
       const trimesterCells = ["1", "2", "3"]
-        .map((trimester) => `${scoreCell(gradeData, trimester, "n1")}${scoreCell(gradeData, trimester, "n2")}${scoreCell(gradeData, trimester, "n3")}${averageCell(getTrimesterFinalAverage(gradeData, trimester))}`)
+        .map((trimester) => `${scoreCell(gradeData, trimester, "n1")}${scoreCell(gradeData, trimester, "n2")}${scoreCell(gradeData, trimester, "n3")}${averageCell(getTrimesterFinalAverage(gradeData, trimester), hasTrimesterScores(gradeData, trimester))}`)
         .join("");
       return `
         <tr>
           <td>${escapeHtml(subject)}</td>
           <td>${escapeHtml(teacherNames || "Não vinculado")}</td>
           ${trimesterCells}
-          ${averageCell(gradeAverage(gradeData))}
+          ${averageCell(gradeAverage(gradeData), ["1", "2", "3"].some((trimester) => hasTrimesterScores(gradeData, trimester)))}
           <td>${grade ? (allComplete ? (approved ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação") : "Pendente") : "Sem notas"}</td>
         </tr>
       `;
@@ -3113,14 +3114,15 @@ function teacherPdfReportTable(grades, subject, className) {
 function studentPdfReportTable(subjectEntries, allComplete, finalRecovery) {
   const scoreCell = (grade, trimester, field) => {
     const value = Number(getTrimester(grade, trimester)[field] || 0);
-    return `<td class="${value < 6 ? "low-score" : ""}">${value.toFixed(1)}</td>`;
+    const hasLaunchedScore = hasTrimesterScores(grade, trimester);
+    return `<td class="${hasLaunchedScore && value < 6 ? "low-score" : ""}">${value.toFixed(1)}</td>`;
   };
-  const averageCell = (value) => `<td class="average ${Number(value) < 6 ? "low-score" : ""}">${value}</td>`;
+  const averageCell = (value, hasLaunchedScore) => `<td class="average ${hasLaunchedScore && Number(value) < 6 ? "low-score" : ""}">${value}</td>`;
   const rows = subjectEntries.map(({ subject, grade }) => {
     const data = grade || { trimesters: {} };
     const status = !grade ? "Sem notas" : allComplete ? Number(gradeAverage(data)) >= 6 ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação" : "Em andamento";
-    const trimesterCells = ["1", "2", "3"].map((trimester) => `${scoreCell(data, trimester, "n1")}${scoreCell(data, trimester, "n2")}${scoreCell(data, trimester, "n3")}${averageCell(getTrimesterFinalAverage(data, trimester))}`).join("");
-    return `<tr><td class="student-name">${escapeHtml(subject)}</td>${trimesterCells}${averageCell(gradeAverage(data))}<td>${status}</td></tr>`;
+    const trimesterCells = ["1", "2", "3"].map((trimester) => `${scoreCell(data, trimester, "n1")}${scoreCell(data, trimester, "n2")}${scoreCell(data, trimester, "n3")}${averageCell(getTrimesterFinalAverage(data, trimester), hasTrimesterScores(data, trimester))}`).join("");
+    return `<tr><td class="student-name">${escapeHtml(subject)}</td>${trimesterCells}${averageCell(gradeAverage(data), ["1", "2", "3"].some((trimester) => hasTrimesterScores(data, trimester)))}<td>${status}</td></tr>`;
   }).join("");
   return `<section class="official-report"><table class="grade-sheet student-sheet"><thead><tr><th rowspan="2">Disciplina</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>Nota 1</th><th>Nota 2</th><th>Nota 3</th><th>Média</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="15">Nenhuma disciplina vinculada.</td></tr>`}</tbody></table><p class="legend">Cada trimestre apresenta as três notas lançadas e a respectiva média. Notas e médias abaixo de 6,0 aparecem em vermelho.</p></section>`;
 }
