@@ -1685,6 +1685,7 @@ function generatePdfReport(title, content, options = {}) {
     return;
   }
   const logoUrl = new URL(SCHOOL_LOGO, window.location.href).href;
+  const stateLogoUrl = new URL("brasao-piaui.webp", window.location.href).href;
   const pageOrientation = options.landscape ? "landscape" : "portrait";
   const generatedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date());
   reportWindow.document.write(`
@@ -1699,7 +1700,7 @@ function generatePdfReport(title, content, options = {}) {
           body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
           .pdf-header {
             display: grid;
-            grid-template-columns: 1fr 82px;
+            grid-template-columns: 82px 1fr 82px;
             gap: 16px;
             align-items: center;
             border-bottom: 3px solid #253a9b;
@@ -1711,6 +1712,8 @@ function generatePdfReport(title, content, options = {}) {
             height: 78px;
             object-fit: contain;
           }
+          .state-logo { width: 72px; height: 72px; object-fit: contain; }
+          .pdf-header-copy { text-align: center; }
           .school-name {
             font-size: 19px;
             font-weight: 800;
@@ -1718,6 +1721,7 @@ function generatePdfReport(title, content, options = {}) {
             color: #253a9b;
             margin: 0 0 4px;
           }
+          .report-label { font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #13235f; margin: 0 0 5px; }
           .school-info {
             display: grid;
             gap: 2px;
@@ -1747,8 +1751,10 @@ function generatePdfReport(title, content, options = {}) {
       </head>
       <body>
         <header class="pdf-header">
-          <div>
+          <img class="state-logo" src="${stateLogoUrl}" alt="Brasão do Estado do Piauí">
+          <div class="pdf-header-copy">
             <p class="school-name">CETI Maria Neusa de Sousa</p>
+            <p class="report-label">Ficha de rendimento</p>
             <p class="school-info">
               <span>Centro Estadual de Tempo Integral</span>
               <span>${escapeHtml(state.contact.address)}</span>
@@ -1758,6 +1764,7 @@ function generatePdfReport(title, content, options = {}) {
           <img class="pdf-logo" src="${logoUrl}" alt="Logo do CETI Maria Neusa de Sousa">
         </header>
         <h1>${escapeHtml(title)}</h1>
+        ${options.officialSheet ? `<div class="report-context"><span><strong>Turma:</strong> ${escapeHtml(getClassLabel(options.className || ""))}</span><span><strong>Disciplina:</strong> ${escapeHtml(getSubjectLabel(options.subject || ""))}</span><span><strong>Professor(a):</strong> ${escapeHtml(options.teacherName || "Não informado")}</span></div>` : ""}
         ${options.studentName ? `<div class="report-context"><span><strong>Estudante:</strong> ${escapeHtml(options.studentName)}</span><span><strong>Turma:</strong> ${escapeHtml(options.className || "Não informada")}</span></div>` : ""}
         <p class="report-meta">Documento gerado em ${generatedAt}</p>
         ${content}
