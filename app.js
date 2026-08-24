@@ -1744,7 +1744,8 @@ function generatePdfReport(title, content, options = {}) {
           .grade-sheet { font-size: 8px; }
           .grade-sheet th, .grade-sheet td { padding: 4px 3px; }
           .grade-sheet .student-name { min-width: 125px; }
-          .student-sheet { font-size: 11px; }
+          .student-sheet { font-size: 8px; table-layout: fixed; }
+          .student-sheet th:first-child { width: 135px; }
           .actions { display: flex; gap: 8px; margin-top: 18px; }
           button { border: 1px solid #253a9b; background: #253a9b; color: white; padding: 10px 14px; font-weight: 700; cursor: pointer; }
           @media print { .actions { display: none; } }
@@ -3117,7 +3118,7 @@ function studentPdfReportTable(subjectEntries, allComplete, finalRecovery) {
     const trimesterCells = ["1", "2", "3"].map((trimester) => `${scoreCell(data, trimester, "n1")}${scoreCell(data, trimester, "n2")}${scoreCell(data, trimester, "n3")}${averageCell(getTrimesterFinalAverage(data, trimester))}`).join("");
     return `<tr><td class="student-name">${escapeHtml(subject)}</td>${trimesterCells}${averageCell(gradeAverage(data))}<td>${status}</td></tr>`;
   }).join("");
-  return `<section class="official-report"><table class="grade-sheet student-sheet"><thead><tr><th rowspan="2">Disciplina</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>N1</th><th>N2</th><th>N3</th><th>MF</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="15">Nenhuma disciplina vinculada.</td></tr>`}</tbody></table><p class="legend">N1, N2 e N3: notas trimestrais. MF: média final do trimestre. Notas e médias abaixo de 6,0 aparecem em vermelho.</p></section>`;
+  return `<section class="official-report"><table class="grade-sheet student-sheet"><thead><tr><th rowspan="2">Disciplina</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>Nota 1</th><th>Nota 2</th><th>Nota 3</th><th>Média</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="15">Nenhuma disciplina vinculada.</td></tr>`}</tbody></table><p class="legend">Cada trimestre apresenta as três notas lançadas e a respectiva média. Notas e médias abaixo de 6,0 aparecem em vermelho.</p></section>`;
 }
 
 function trimesterMiniTable(grade, trimester) {
