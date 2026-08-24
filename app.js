@@ -1626,22 +1626,25 @@ function trimesterMiniTableV2(grade, trimester) {
 }
 
 function studentReportTable(subjectEntries, allComplete, finalRecovery) {
+  const scoreCell = (grade, trimester, field) => {
+    const value = Number(getTrimester(grade, trimester)[field] || 0);
+    return `<td class="${value < 6 ? "score-low" : ""}">${value.toFixed(1)}</td>`;
+  };
+  const averageCell = (value) => `<td class="score-average ${Number(value) < 6 ? "score-low" : ""}">${value}</td>`;
   const rows = subjectEntries
     .map(({ subject, grade, teachers }) => {
       const gradeData = grade || { trimesters: {} };
-      const t1Recovery = getTrimester(gradeData, "1").recovery;
-      const t2Recovery = getTrimester(gradeData, "2").recovery;
-      const t3Recovery = getTrimester(gradeData, "3").recovery;
       const approved = Number(gradeAverage(gradeData)) >= 6;
       const teacherNames = teachers.map((teacher) => teacher.name).filter(Boolean).join(", ");
+      const trimesterCells = ["1", "2", "3"]
+        .map((trimester) => `${scoreCell(gradeData, trimester, "n1")}${scoreCell(gradeData, trimester, "n2")}${scoreCell(gradeData, trimester, "n3")}${averageCell(getTrimesterFinalAverage(gradeData, trimester))}`)
+        .join("");
       return `
         <tr>
           <td>${escapeHtml(subject)}</td>
           <td>${escapeHtml(teacherNames || "Não vinculado")}</td>
-          <td>${trimesterAverage(gradeData, "1")} ${t1Recovery ? "(Rec)" : ""}</td>
-          <td>${trimesterAverage(gradeData, "2")} ${t2Recovery ? "(Rec)" : ""}</td>
-          <td>${trimesterAverage(gradeData, "3")} ${t3Recovery ? "(Rec)" : ""}</td>
-          <td>${gradeAverage(gradeData)}</td>
+          ${trimesterCells}
+          ${averageCell(gradeAverage(gradeData))}
           <td>${grade ? (allComplete ? (approved ? "Aprovado" : finalRecovery ? "Recuperação final" : "Recuperação") : "Pendente") : "Sem notas"}</td>
         </tr>
       `;
@@ -1650,11 +1653,12 @@ function studentReportTable(subjectEntries, allComplete, finalRecovery) {
 
   return `
     <div class="table-scroll">
-      <table class="report-table">
+      <table class="report-table student-detailed-report">
         <thead>
-          <tr><th>Disciplina</th><th>Professor(a)</th><th>1T</th><th>2T</th><th>3T</th><th>Final</th><th>Situação</th></tr>
+          <tr><th rowspan="2">Disciplina</th><th rowspan="2">Professor(a)</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr>
+          <tr>${["1", "2", "3"].map(() => "<th>Nota 1</th><th>Nota 2</th><th>Nota 3</th><th>Média</th>").join("")}</tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="7">Nenhuma disciplina vinculada à turma.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="16">Nenhuma disciplina vinculada à turma.</td></tr>`}</tbody>
       </table>
     </div>
   `;

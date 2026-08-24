@@ -1241,6 +1241,24 @@ textarea.input {
   color: var(--white);
 }
 
+.student-detailed-report {
+  min-width: 1520px;
+}
+
+.student-detailed-report th:not(:first-child):not(:nth-child(2)),
+.student-detailed-report td:not(:first-child):not(:nth-child(2)) {
+  text-align: center;
+}
+
+.score-average {
+  font-weight: 800;
+}
+
+.score-low {
+  color: #b91c1c;
+  font-weight: 800;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
