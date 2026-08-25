@@ -1969,11 +1969,22 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
     return true;
 
   } catch (error) {
-    console.error("Erro completo:", error);
+    // `console.error(error)` costuma aparecer apenas como "Object" no DevTools.
+    // Estes campos sao a resposta util devolvida pelo PostgREST/Supabase.
+    console.error("Erro completo:", {
+      table,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
     const databaseNeedsUpdate = error?.code === "PGRST204" || error?.code === "42501";
+    const missingConflictConstraint = error?.code === "42P10";
     const missingColumn = error?.message?.match(/(?:Could not find the '([^']+)' column|column [^.]+\.([^ ]+) does not exist)/)?.slice(1).find(Boolean);
     toast(
-      databaseNeedsUpdate
+      missingConflictConstraint
+        ? `A tabela ${table} nao possui uma chave unica para “${conflict}”. Execute supabase-add-attachments.sql no Supabase.`
+        : databaseNeedsUpdate
         ? missingColumn
           ? `Falta a coluna “${missingColumn}” no banco. Execute novamente supabase-add-attachments.sql no Supabase.`
           : "Banco desatualizado ou sem permissão. Execute novamente supabase-add-attachments.sql no Supabase."
