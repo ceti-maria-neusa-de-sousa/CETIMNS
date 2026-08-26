@@ -82,6 +82,12 @@ const sortPeopleByName = (people) =>
   [...people].sort((left, right) =>
     String(left.name || "").localeCompare(String(right.name || ""), "pt-BR", { sensitivity: "base" })
   );
+const sortGradesByStudentName = (grades) =>
+  [...grades].sort((left, right) => {
+    const leftName = state.students.find((student) => idsEqual(student.id, left.studentId))?.name || "";
+    const rightName = state.students.find((student) => idsEqual(student.id, right.studentId))?.name || "";
+    return leftName.localeCompare(rightName, "pt-BR", { sensitivity: "base" });
+  });
 const getExistingUsernames = (excludedId = null) =>
   new Set(
     [...state.students, ...state.teachers]
@@ -3146,7 +3152,7 @@ function setupTeacherGradeLivePreview(teacher, trimester, subject, className) {
 }
 
 function teacherReportTable(teacher, grades, subject, className) {
-  const rows = grades
+  const rows = sortGradesByStudentName(grades)
     .map((grade) => {
       const student = state.students.find((item) => item.id === grade.studentId);
       const t1Final = getTrimesterFinalAverage(grade, "1");
@@ -3187,7 +3193,7 @@ function teacherReportTable(teacher, grades, subject, className) {
 
 function teacherPdfReportTable(grades, subject, className) {
   const score = (grade, trimester, field) => Number(getTrimester(grade, trimester)[field] || 0).toFixed(1);
-  const rows = grades.map((grade, index) => {
+  const rows = sortGradesByStudentName(grades).map((grade, index) => {
     const student = state.students.find((item) => idsEqual(item.id, grade.studentId));
     const finalAverage = gradeAverage(grade);
     const status = hasTrimesterScores(grade, "3")
