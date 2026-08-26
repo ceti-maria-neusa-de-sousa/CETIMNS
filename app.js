@@ -626,7 +626,7 @@ function card(item, type, options = {}) {
   const category = item.category || item.responsible || type;
   const media = item.files?.find((file) => file.type?.startsWith("image/") || file.type?.startsWith("video/"));
   const mediaMarkup = media?.type?.startsWith("image/")
-    ? `<img class="card-media" src="${media.data}" alt="">`
+    ? `<img class="card-media" src="${media.data}" alt="" loading="lazy" decoding="async">`
     : media?.type?.startsWith("video/") && !options.href
     ? `<video class="card-media" controls preload="metadata"><source src="${media.data}" type="${escapeHtml(media.type)}"></video>`
     : `<div class="card-media">${category}</div>`;
@@ -739,8 +739,8 @@ function renderNewsDetail() {
     `;
     return;
   }
-  const image = item.files?.find((file) => file.type.startsWith("image/"));
-  const attachments = (item.files || []).filter((file) => !file.type.startsWith("image/"));
+  const image = item.files?.find((file) => file.type?.startsWith("image/"));
+  const attachments = (item.files || []).filter((file) => !file.type?.startsWith("image/"));
   root.innerHTML = `
     <article class="panel news-detail">
       <a class="button ghost" href="#noticias">Voltar para notícias</a>
@@ -768,7 +768,7 @@ function newsAttachment(file) {
   return `<a class="button ghost" href="${file.data}" download="${escapeHtml(file.name)}">${escapeHtml(file.name)}</a>`;
 }
 
-function fileToDataUrl(file) {
+function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: reader.result });
@@ -2077,6 +2077,40 @@ function renderSchoolAdmin(content) {
   });
 }
 
+async function optimizeImage(file) {
+  const canOptimize = file.type.startsWith("image/") && file.type !== "image/svg+xml" && file.size > 500 * 1024;
+  if (!canOptimize) return file;
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = reject;
+      element.src = objectUrl;
+    });
+    const maxDimension = 1920;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    const name = type === "image/jpeg" ? file.name.replace(/\.[^.]+$/, ".jpg") : file.name;
+    return new File([blob], name, { type });
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function fileToDataUrl(file) {
+  return readFileAsDataUrl(await optimizeImage(file));
+}
+
 function renderCatalogAdmin(content) {
   const classRows = state.classes
     .map((classItem) => {
@@ -2820,7 +2854,7 @@ function renderContentEditor(root) {
             <label>Categoria<input class="input" name="category" value="${escapeHtml(item.category || "")}"></label>
           `
       }
-      ${type === "news" || type === "activities" ? `
+      ${type === "news" || type === "events" || type === "activities" || type === "achievements" ? `
         <fieldset class="upload-zone">
           <legend>Imagens, vídeos e arquivos</legend>
           <p>Escolha arquivos da câmera, galeria ou dispositivo.</p>
@@ -2916,7 +2950,8 @@ function renderContentEditor(root) {
         description: String(form.get("description") || "").trim(),
         date: String(form.get("date") || "").trim(),
         time: String(form.get("time") || "").trim(),
-        location: String(form.get("location") || "").trim()
+        location: String(form.get("location") || "").trim(),
+        files: selectedFiles
       };
     } else if (type === "activities") {
       payload = {
@@ -2931,7 +2966,8 @@ function renderContentEditor(root) {
         ...base,
         title: String(form.get("title") || "").trim(),
         description: String(form.get("description") || "").trim(),
-        category: String(form.get("category") || "").trim()
+        category: String(form.get("category") || "").trim(),
+        files: selectedFiles
       };
     }
 

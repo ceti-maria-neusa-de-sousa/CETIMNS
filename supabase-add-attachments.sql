@@ -54,6 +54,7 @@ ALTER TABLE public.events ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS date TEXT;
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS time TEXT;
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS files JSONB DEFAULT '[]'::jsonb;
 DO $$
 BEGIN
   IF EXISTS (
@@ -99,7 +100,7 @@ CREATE TABLE IF NOT EXISTS public.teacher_assignments (
               GRANT SELECT, INSERT, UPDATE, DELETE ON public.news TO anon, authenticated;
               GRANT SELECT, INSERT, UPDATE, DELETE ON public.activities TO anon, authenticated;
               GRANT SELECT, INSERT, UPDATE, DELETE ON public.achievements TO anon, authenticated;
-              GRANT SELECT, INSERT, UPDATE, DELETE ON public.events TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.events TO anon, authenticated;
               GRANT SELECT, INSERT, UPDATE, DELETE ON public.teacher_assignments TO anon, authenticated;
               GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 
