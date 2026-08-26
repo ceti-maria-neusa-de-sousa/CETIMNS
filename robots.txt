@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ceti-maria-neusa-de-sousa.github.io/CETIMNS/sitemap.xml
