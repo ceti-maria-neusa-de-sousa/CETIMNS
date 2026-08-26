@@ -43,7 +43,8 @@ let state = {
     phone: "",
     email: ""
   },
-  team: []
+  team: [],
+  schoolConfigId: null
 };
 
 let currentCalendarView = "month";
@@ -257,6 +258,7 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
     state.achievements = achievementsData || [];
     const config = configData?.[0];
     if (config) {
+      state.schoolConfigId = config.id ?? null;
       state.about.history = config.history || "";
       state.about.mission = config.mission || "";
       state.about.vision = config.vision || "";
@@ -1798,8 +1800,6 @@ function generatePdfReport(title, content, options = {}) {
 }
 
 // ==================== ADMIN PAINEL ====================
-const ADMIN_CONFIG_ID = "00000000-0000-0000-0000-000000000001";
-
 async function syncAdminData(message) {
   await loadDataFromSupabase();
   renderPublic();
@@ -1938,7 +1938,6 @@ function safeJson(value, fallback) {
 
 function currentSchoolConfig() {
   return {
-    id: ADMIN_CONFIG_ID,
     history: state.about.history || "",
     mission: state.about.mission || "",
     vision: state.about.vision || "",
@@ -1948,6 +1947,32 @@ function currentSchoolConfig() {
     email: state.contact.email || "",
     team: state.team || []
   };
+}
+
+async function saveSchoolConfig(payload) {
+  try {
+    const request = state.schoolConfigId != null
+      ? supabase.from("school_config").update(payload).eq("id", state.schoolConfigId)
+      : supabase.from("school_config").insert(payload);
+    const { data: savedData, error } = await request.select();
+
+    if (error) throw error;
+    if (!savedData?.length) throw new Error("O banco não confirmou o salvamento da configuração da escola.");
+
+    state.schoolConfigId = savedData[0].id ?? state.schoolConfigId;
+    clearCache("school_config");
+    await syncAdminData("Configuração da escola salva.");
+    return true;
+  } catch (error) {
+    console.error("Erro ao salvar a configuração da escola:", {
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    toast(error?.message ? `Erro ao salvar: ${error.message}` : "Erro ao salvar a configuração da escola.");
+    return false;
+  }
 }
 
 async function upsertRecord(table, payload, conflict = "id", successMessage = "Registro salvo com sucesso.") {
@@ -2039,22 +2064,16 @@ function renderSchoolAdmin(content) {
       .filter((parts) => parts[0])
       .map(([name, role]) => ({ name, role: role || "Equipe" }));
 
-    await upsertRecord(
-      "school_config",
-      {
-        id: ADMIN_CONFIG_ID,
-        history: form.get("history"),
-        mission: form.get("mission"),
-        vision: form.get("vision"),
-        values: form.get("values"),
-        address: form.get("address"),
-        phone: form.get("phone"),
-        email: form.get("email"),
-        team
-      },
-      "id",
-      "Configuração da escola salva."
-    );
+    await saveSchoolConfig({
+      history: form.get("history"),
+      mission: form.get("mission"),
+      vision: form.get("vision"),
+      values: form.get("values"),
+      address: form.get("address"),
+      phone: form.get("phone"),
+      email: form.get("email"),
+      team
+    });
   });
 }
 
