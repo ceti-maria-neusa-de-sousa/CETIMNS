@@ -168,9 +168,9 @@ INSERT INTO school_config (id, history, mission, vision, "values", address, phon
 VALUES (
   '00000000-0000-0000-0000-000000000001',
   'CETI Maria Neusa de Sousa - Centro Estadual de Tempo Integral',
-  'Formar cidadaos criticos e competentes',
-  'Excelencia em educacao integral',
-  'Respeito, Responsabilidade, Inovacao',
+  'Formar cidadãos críticos e competentes',
+  'Excelência em educação integral',
+  'Respeito, Responsabilidade, Inovação',
   'Francisco Macedo, PI',
   '(86) XXXX-XXXX',
   'ceti@seduc.pi.gov.br',
