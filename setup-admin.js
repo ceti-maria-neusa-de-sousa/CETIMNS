@@ -25,15 +25,15 @@ async function setupAdmin() {
     if (error) throw error;
     console.log("Admin criado ou atualizado com sucesso!", data);
 
-    console.log("Criando configuracao da escola...");
+    console.log("Criando configuração da escola...");
     const { error: configError } = await supabase.from("school_config").upsert(
       [
         {
           id: "00000000-0000-0000-0000-000000000001",
           history: "CETI Maria Neusa de Sousa - Centro Estadual de Tempo Integral",
-          mission: "Formar cidados criticos e competentes",
-          vision: "Excelencia em educacao integral",
-          values: "Respeito, Responsabilidade, Inovacao",
+          mission: "Formar cidadãos críticos e competentes",
+          vision: "Excelência em educação integral",
+          values: "Respeito, Responsabilidade, Inovação",
           address: "Francisco Macedo, PI",
           phone: "(86) XXXX-XXXX",
           email: "ceti@seduc.pi.gov.br",
@@ -46,7 +46,7 @@ async function setupAdmin() {
     if (configError) {
       console.warn("Erro ao criar config:", configError);
     } else {
-      console.log("Configuracao da escola criada!");
+      console.log("Configuração da escola criada!");
     }
 
     console.log("Criando turmas iniciais...");

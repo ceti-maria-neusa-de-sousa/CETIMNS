@@ -1969,11 +1969,22 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
     return true;
 
   } catch (error) {
-    console.error("Erro completo:", error);
+    // `console.error(error)` costuma aparecer apenas como "Object" no DevTools.
+    // Estes campos sao a resposta util devolvida pelo PostgREST/Supabase.
+    console.error("Erro completo:", {
+      table,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
     const databaseNeedsUpdate = error?.code === "PGRST204" || error?.code === "42501";
+    const missingConflictConstraint = error?.code === "42P10";
     const missingColumn = error?.message?.match(/(?:Could not find the '([^']+)' column|column [^.]+\.([^ ]+) does not exist)/)?.slice(1).find(Boolean);
     toast(
-      databaseNeedsUpdate
+      missingConflictConstraint
+        ? `A tabela ${table} nao possui uma chave unica para “${conflict}”. Execute supabase-add-attachments.sql no Supabase.`
+        : databaseNeedsUpdate
         ? missingColumn
           ? `Falta a coluna “${missingColumn}” no banco. Execute novamente supabase-add-attachments.sql no Supabase.`
           : "Banco desatualizado ou sem permissão. Execute novamente supabase-add-attachments.sql no Supabase."
@@ -2002,21 +2013,21 @@ function renderSchoolAdmin(content) {
     <div class="portal-heading">
       <div>
         <h2>Configuração da escola</h2>
-        <p class="muted">Edite historia, missao, visao, valores, contato e equipe institucional.</p>
+        <p class="muted">Edite história, missão, visão, valores, contato e equipe institucional.</p>
       </div>
     </div>
     <form class="panel contact-form" data-school-form>
-      <label>Historia<textarea class="input" name="history" rows="4">${escapeHtml(config.history)}</textarea></label>
-      <label>Missao<textarea class="input" name="mission" rows="3">${escapeHtml(config.mission)}</textarea></label>
-      <label>Visao<textarea class="input" name="vision" rows="3">${escapeHtml(config.vision)}</textarea></label>
+      <label>História<textarea class="input" name="history" rows="4">${escapeHtml(config.history)}</textarea></label>
+      <label>Missão<textarea class="input" name="mission" rows="3">${escapeHtml(config.mission)}</textarea></label>
+      <label>Visão<textarea class="input" name="vision" rows="3">${escapeHtml(config.vision)}</textarea></label>
       <label>Valores<textarea class="input" name="values" rows="3">${escapeHtml(config.values)}</textarea></label>
-      <label>Endereco<input class="input" name="address" value="${escapeHtml(config.address)}"></label>
+      <label>Endereço<input class="input" name="address" value="${escapeHtml(config.address)}"></label>
       <label>Telefone<input class="input" name="phone" value="${escapeHtml(config.phone)}"></label>
       <label>E-mail<input class="input" name="email" type="email" value="${escapeHtml(config.email)}"></label>
       <label>Equipe institucional<textarea class="input" name="team" rows="5" placeholder="Nome | Cargo">${escapeHtml(
         (config.team || []).map((person) => `${person.name} | ${person.role}`).join("\n")
       )}</textarea></label>
-      <button class="button primary" type="submit">Salvar configuracao</button>
+      <button class="button primary" type="submit">Salvar configuração</button>
     </form>
   `;
 

@@ -20,6 +20,26 @@ ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS address TEXT DEFAULT '
 ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
 ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS team JSONB DEFAULT '[]'::jsonb;
+
+-- O upsert do painel usa `onConflict: 'id'`; bancos muito antigos podem ter
+-- a coluna sem uma restricao unica. Garante a chave necessaria para o upsert.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.school_config'::regclass
+      AND contype IN ('p', 'u')
+      AND conkey = ARRAY[
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.school_config'::regclass
+           AND attname = 'id' AND NOT attisdropped)
+      ]
+  ) THEN
+    ALTER TABLE public.school_config ADD CONSTRAINT school_config_pkey PRIMARY KEY (id);
+  END IF;
+END $$;
+
 ALTER TABLE public.school_config ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_config TO anon, authenticated;
 
