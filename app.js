@@ -78,6 +78,17 @@ const escapeHtml = (value = "") =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+const sortPeopleByName = (people) =>
+  [...people].sort((left, right) =>
+    String(left.name || "").localeCompare(String(right.name || ""), "pt-BR", { sensitivity: "base" })
+  );
+const getExistingUsernames = (excludedId = null) =>
+  new Set(
+    [...state.students, ...state.teachers]
+      .filter((person) => !excludedId || !idsEqual(person.id, excludedId))
+      .map((person) => normalizeUser(person.user || ""))
+      .filter(Boolean)
+  );
 
 const parseCsvText = (text) => {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -103,18 +114,28 @@ const parseFileClassName = (fileName) => {
 };
 
 const createStudentUsername = (name, existingUsernames = new Set(), preferredUser = "") => {
-  const preferred = normalizeUser(preferredUser || "");
-  const firstName = normalizeUser(name)
+  const preferred = normalizeUser(preferredUser || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .split(/[^a-z0-9]+/)
-    .find(Boolean);
-  const base = preferred || firstName || "aluno";
-  let user = base || `aluno${Math.floor(Math.random() * 100000)}`;
-  let counter = 1;
-  while (existingUsernames.has(user) || !user) {
-    user = `${base || "aluno"}${counter++}`;
+    .replace(/[^a-z0-9]+/g, "");
+  const nameParts = (normalizeUser(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .match(/[a-z0-9]+/g) || []).filter((part, index) => index === 0 || !["da", "das", "de", "do", "dos", "e"].includes(part));
+  const nameBases = nameParts.map((_, index) => nameParts.slice(0, index + 1).join(""));
+  const bases = [...new Set(preferred ? [preferred, ...nameBases] : nameBases)];
+
+  for (const base of bases) {
+    if (base && !existingUsernames.has(base)) {
+      existingUsernames.add(base);
+      return base;
+    }
   }
+
+  const base = bases.at(-1) || "aluno";
+  let counter = 2;
+  let user = `${base}${counter}`;
+  while (existingUsernames.has(user)) user = `${base}${++counter}`;
   existingUsernames.add(user);
   return user;
 };
@@ -248,8 +269,8 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
     state.subjects = (subjectsData || [])
       .map((item) => ({ ...item, name: item.name || "" }))
       .filter((item) => item.name);
-    state.students = (studentsData || []).map(normalizeStudentData);
-    state.teachers = (teachersData || []).map(normalizeTeacherData);
+    state.students = sortPeopleByName((studentsData || []).map(normalizeStudentData));
+    state.teachers = sortPeopleByName((teachersData || []).map(normalizeTeacherData));
     state.teacherAssignments = (teacherAssignmentsData || []).map(normalizeTeacherAssignmentData);
     state.grades = (gradesData || []).map(normalizeGradeData);
     state.news = newsData || [];
@@ -1044,7 +1065,7 @@ function renderTeacherPanel(session) {
   const activeSubject = currentTeacherSubject;
   const activeClass = currentTeacherClass;
   const teacherStudents = activeClass && activeSubject
-    ? state.students.filter((student) => getClassLabel(student.className) === activeClass)
+    ? sortPeopleByName(state.students.filter((student) => getClassLabel(student.className) === activeClass))
     : [];
   const teacherGrades = state.grades.filter(
     (grade) =>
@@ -2315,7 +2336,7 @@ function renderStudentsAdmin(content) {
         ${renderClassLinkInfo(selectedClassName)}
       </div>
       <label>Usuário<input class="input" name="user" value="${escapeHtml(editing?.user || "")}" readonly></label>
-      <p class="muted">O usuário é criado automaticamente usando o primeiro nome. Se já existir, o sistema acrescenta um número. A senha inicial é <strong>1234</strong> e deve ser alterada no primeiro acesso.</p>
+      <p class="muted">O usuário é criado automaticamente usando o primeiro nome. Se ele já estiver em uso, o sistema acrescenta o sobrenome; somente depois usa um número. A senha inicial é <strong>1234</strong> e deve ser alterada no primeiro acesso.</p>
       <label class="checkbox-row"><input type="checkbox" name="isJournalist"${editing?.isJournalist ? " checked" : ""}> Aluno jornalista — pode criar matérias para o jornal escolar</label>
       <div class="row-actions">
         <button class="button primary" type="submit">${editing ? "Atualizar aluno" : "Salvar aluno"}</button>
@@ -2430,7 +2451,7 @@ function renderStudentsAdmin(content) {
   if (bulkImportButton) {
     bulkImportButton.addEventListener("click", async () => {
       if (!bulkStudents.length) return toast("Selecione um arquivo CSV válido antes de importar.");
-      const existingUsernames = new Set(state.students.map((student) => normalizeUser(student.user || "")));
+      const existingUsernames = getExistingUsernames();
       const existingStudents = new Set(state.students.map((student) => `${normalizeLabel(student.name)}|${normalizeLabel(student.className)}`));
       const rowsToInsert = bulkStudents
         .map((student) => {
@@ -2477,7 +2498,7 @@ function renderStudentsAdmin(content) {
     event.preventDefault();
     const form = new FormData(event.target);
     const id = String(form.get("id") || "").trim();
-    const existingUsernames = new Set(state.students.filter((student) => !id || !idsEqual(student.id, id)).map((student) => normalizeUser(student.user || "")));
+    const existingUsernames = getExistingUsernames(id);
     const user = createStudentUsername(String(form.get("name") || ""), existingUsernames, id ? String(form.get("user") || "") : "");
     const payload = {
       id: id || makeId(),
@@ -2507,7 +2528,7 @@ function renderStudentsAdmin(content) {
   const studentUserInput = $("[data-student-form] [name='user']");
   studentNameInput?.addEventListener("input", () => {
     if (editing || !studentUserInput) return;
-    studentUserInput.value = createStudentUsername(studentNameInput.value, new Set(state.students.map((student) => normalizeUser(student.user || ""))));
+    studentUserInput.value = createStudentUsername(studentNameInput.value, getExistingUsernames());
   });
 
   $$("[data-student-edit]").forEach((button) =>
@@ -2587,7 +2608,7 @@ function renderTeachersAdmin(content) {
       <h3>Lista de professores</h3>
       <div class="list-view">
         ${
-          state.teachers
+          sortPeopleByName(state.teachers)
             .map(
               (teacher) => `
                 <article class="list-item">
@@ -2625,7 +2646,7 @@ function renderTeachersAdmin(content) {
       name: String(form.get("name") || "").trim(),
       subject: subjects.join(", "),
       classes,
-      user: String(form.get("user") || "").trim() || null,
+      user: createStudentUsername(String(form.get("name") || ""), getExistingUsernames(id), String(form.get("user") || "")),
       password: password || null
     };
     if (!payload.name || !assignments.length) return toast("Informe o nome e vincule ao menos uma disciplina a uma turma.");

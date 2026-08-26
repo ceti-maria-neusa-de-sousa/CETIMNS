@@ -10,6 +10,7 @@ ALTER TABLE public.news ADD COLUMN IF NOT EXISTS files JSONB DEFAULT '[]'::jsonb
 ALTER TABLE public.news ADD COLUMN IF NOT EXISTS created_by_student_id TEXT;
 
 ALTER TABLE public.students ADD COLUMN IF NOT EXISTS is_journalist BOOLEAN DEFAULT false;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 
 -- Configuracoes institucionais: garante compatibilidade com bancos criados em versoes anteriores.
 ALTER TABLE public.school_config ADD COLUMN IF NOT EXISTS history TEXT DEFAULT '';

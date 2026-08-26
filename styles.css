@@ -715,6 +715,29 @@ textarea.input {
   grid-column: 1 / -1;
 }
 
+.about-grid .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.about-grid .panel h2 {
+  margin-bottom: 12px;
+}
+
+.about-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.8;
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  white-space: pre-line;
+}
+
+.about-grid .panel.wide .about-copy {
+  max-width: 78ch;
+}
+
 .people-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1538,6 +1561,10 @@ textarea.input {
   .panel.wide,
   .form-grid .full {
     grid-column: auto;
+  }
+
+  .about-copy {
+    text-align: left;
   }
 
   .gallery-strip,
