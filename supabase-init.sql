@@ -169,7 +169,7 @@ ON CONFLICT (user) DO UPDATE SET
 INSERT INTO school_config (id, history, mission, vision, "values", address, phone, email, team)
 VALUES (
   '00000000-0000-0000-0000-000000000001',
-  'CETI Maria Neusa de Sousa - Centro Estadual de Tempo Integral',
+  'O CETI Maria Neusa de Sousa, localizado em Francisco Macedo, no Piauí, é uma escola pública de tempo integral comprometida com uma educação acolhedora, inclusiva e transformadora. Sua trajetória foi construída com a participação de estudantes, famílias, educadores e comunidade, que reconhecem na escola um espaço de aprendizado, convivência e construção de projetos de vida. Ao longo dos anos, a instituição vem ampliando suas ações pedagógicas, culturais, esportivas e tecnológicas, valorizando os saberes locais e preparando os estudantes para os desafios do presente e do futuro. Com uma equipe dedicada, o CETI busca formar cidadãos críticos, responsáveis e solidários, capazes de contribuir de forma positiva para a sociedade.',
   'Formar cidadãos críticos e competentes',
   'Excelência em educação integral',
   'Respeito, Responsabilidade, Inovação',

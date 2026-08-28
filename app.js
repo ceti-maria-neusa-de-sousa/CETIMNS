@@ -9,6 +9,8 @@ const SCHOOL_TITLE = "CETI Maria Neusa de Sousa";
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS_TOTAL_SIZE = 25 * 1024 * 1024;
 const DEFAULT_STUDENT_PASSWORD = "1234";
+const DEFAULT_SCHOOL_HISTORY = "O CETI Maria Neusa de Sousa, localizado em Francisco Macedo, no Piauí, é uma escola pública de tempo integral comprometida com uma educação acolhedora, inclusiva e transformadora. Sua trajetória foi construída com a participação de estudantes, famílias, educadores e comunidade, que reconhecem na escola um espaço de aprendizado, convivência e construção de projetos de vida. Ao longo dos anos, a instituição vem ampliando suas ações pedagógicas, culturais, esportivas e tecnológicas, valorizando os saberes locais e preparando os estudantes para os desafios do presente e do futuro. Com uma equipe dedicada, o CETI busca formar cidadãos críticos, responsáveis e solidários, capazes de contribuir de forma positiva para a sociedade.";
+const LEGACY_SCHOOL_HISTORY = "CETI Maria Neusa de Sousa - Centro Estadual de Tempo Integral";
 const makeId = () => crypto.randomUUID();
 const normalizeUser = (value) => String(value ?? "").trim().toLowerCase();
 const normalizePassword = (value) => String(value ?? "").trim();
@@ -33,7 +35,7 @@ let state = {
     awards: 0
   },
   about: {
-    history: "",
+    history: DEFAULT_SCHOOL_HISTORY,
     mission: "",
     vision: "",
     values: ""
@@ -286,7 +288,9 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
     const config = configData?.[0];
     if (config) {
       state.schoolConfigId = config.id ?? null;
-      state.about.history = config.history || "";
+      state.about.history = !config.history || config.history === LEGACY_SCHOOL_HISTORY
+        ? DEFAULT_SCHOOL_HISTORY
+        : config.history;
       state.about.mission = config.mission || "";
       state.about.vision = config.vision || "";
       state.about.values = config.values || config["values"] || "";
@@ -584,6 +588,10 @@ function renderClassLinkInfo(className) {
 function hasTrimesterScores(grade, trimester) {
   const data = getTrimester(grade, trimester);
   return [data.n1, data.n2, data.n3].some((value) => Number(value) > 0);
+}
+
+function hasLaunchedScore(grade, trimester, field) {
+  return Number(getTrimester(grade, trimester)[field]) > 0;
 }
 
 function getTrimesterStatusText(grade, trimester) {
@@ -1657,8 +1665,8 @@ function trimesterMiniTableV2(grade, trimester) {
 function studentReportTable(subjectEntries, allComplete, finalRecovery) {
   const scoreCell = (grade, trimester, field) => {
     const value = Number(getTrimester(grade, trimester)[field] || 0);
-    const hasLaunchedScore = hasTrimesterScores(grade, trimester);
-    return `<td class="${hasLaunchedScore && value < 6 ? "score-low" : ""}">${value.toFixed(1)}</td>`;
+    const scoreWasLaunched = hasLaunchedScore(grade, trimester, field);
+    return `<td class="${scoreWasLaunched && value < 6 ? "score-low" : ""}">${value.toFixed(1)}</td>`;
   };
   const averageCell = (value, hasLaunchedScore) => `<td class="score-average ${hasLaunchedScore && Number(value) < 6 ? "score-low" : ""}">${value}</td>`;
   const rows = subjectEntries
@@ -3087,12 +3095,12 @@ function teacherStudentRow(student, teacher, trimester, subject, className) {
         <strong>${escapeHtml(student.name)}</strong>
         <small>Turma ${escapeHtml(getClassLabel(className))}</small>
       </div>
-      <input class="input" name="n1-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n1 || ""}" data-score-input="n1">
-      <input class="input" name="n2-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n2 || ""}" data-score-input="n2">
-      <input class="input" name="n3-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n3 || ""}" data-score-input="n3">
-      <div data-recovery-cell>${renderRecoveryCell(grade, trimester, student)}</div>
-      <strong data-average>${average}</strong>
-      <span class="badge ${approved ? "success" : "warning"}" data-status>${statusText}</span>
+      <label class="grade-input-cell" data-label="N1"><input class="input" aria-label="Nota 1 de ${escapeHtml(student.name)}" name="n1-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n1 || ""}" data-score-input="n1"></label>
+      <label class="grade-input-cell" data-label="N2"><input class="input" aria-label="Nota 2 de ${escapeHtml(student.name)}" name="n2-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n2 || ""}" data-score-input="n2"></label>
+      <label class="grade-input-cell" data-label="N3"><input class="input" aria-label="Nota 3 de ${escapeHtml(student.name)}" name="n3-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n3 || ""}" data-score-input="n3"></label>
+      <div class="grade-value-cell" data-label="Recuperacao" data-recovery-cell>${renderRecoveryCell(grade, trimester, student)}</div>
+      <strong class="grade-value-cell" data-label="Media" data-average>${average}</strong>
+      <span class="grade-value-cell badge ${approved ? "success" : "warning"}" data-label="Situacao" data-status>${statusText}</span>
     </div>
   `;
 }
@@ -3165,14 +3173,16 @@ function teacherReportTable(teacher, grades, subject, className) {
         : hasTrimesterScores(grade, "1") || hasTrimesterScores(grade, "2")
         ? "Em andamento"
         : "Pendente";
+      const hasAnyScore = ["1", "2", "3"].some((trimester) => hasTrimesterScores(grade, trimester));
+      const scoreClass = (value, wasLaunched) => wasLaunched && Number(value) < 6 ? "score-low" : "";
       return `
         <tr>
           <td>${escapeHtml(student?.name || "Aluno")}</td>
           <td>${escapeHtml(getClassLabel(grade.className))}</td>
-          <td>${t1Final}</td>
-          <td>${t2Final}</td>
-          <td>${t3Final}</td>
-          <td>${gradeAverage(grade)}</td>
+          <td class="${scoreClass(t1Final, hasTrimesterScores(grade, "1"))}">${t1Final}</td>
+          <td class="${scoreClass(t2Final, hasTrimesterScores(grade, "2"))}">${t2Final}</td>
+          <td class="${scoreClass(t3Final, hasTrimesterScores(grade, "3"))}">${t3Final}</td>
+          <td class="${scoreClass(gradeAverage(grade), hasAnyScore)}">${gradeAverage(grade)}</td>
           <td>${overallStatus}</td>
         </tr>
       `;
@@ -3192,14 +3202,19 @@ function teacherReportTable(teacher, grades, subject, className) {
 }
 
 function teacherPdfReportTable(grades, subject, className) {
-  const score = (grade, trimester, field) => Number(getTrimester(grade, trimester)[field] || 0).toFixed(1);
+  const score = (grade, trimester, field) => {
+    const value = Number(getTrimester(grade, trimester)[field] || 0);
+    return `<td class="${hasLaunchedScore(grade, trimester, field) && value < 6 ? "low-score" : ""}">${value.toFixed(1)}</td>`;
+  };
   const rows = sortGradesByStudentName(grades).map((grade, index) => {
     const student = state.students.find((item) => idsEqual(item.id, grade.studentId));
     const finalAverage = gradeAverage(grade);
     const status = hasTrimesterScores(grade, "3")
       ? Number(finalAverage) >= 6 ? "Aprovado" : "Recuperação final"
       : "Em andamento";
-    return `<tr><td>${index + 1}</td><td class="student-name">${escapeHtml(student?.name || "Aluno")}</td>${["1", "2", "3"].map((trimester) => `<td>${score(grade, trimester, "n1")}</td><td>${score(grade, trimester, "n2")}</td><td>${score(grade, trimester, "n3")}</td><td class="average">${getTrimesterFinalAverage(grade, trimester)}</td>`).join("")}<td class="average">${finalAverage}</td><td>${status}</td></tr>`;
+    const averageCell = (value, wasLaunched) => `<td class="average ${wasLaunched && Number(value) < 6 ? "low-score" : ""}">${value}</td>`;
+    const hasAnyScore = ["1", "2", "3"].some((trimester) => hasTrimesterScores(grade, trimester));
+    return `<tr><td>${index + 1}</td><td class="student-name">${escapeHtml(student?.name || "Aluno")}</td>${["1", "2", "3"].map((trimester) => `${score(grade, trimester, "n1")}${score(grade, trimester, "n2")}${score(grade, trimester, "n3")}${averageCell(getTrimesterFinalAverage(grade, trimester), hasTrimesterScores(grade, trimester))}`).join("")}${averageCell(finalAverage, hasAnyScore)}<td>${status}</td></tr>`;
   }).join("");
   return `<section class="official-report"><table class="grade-sheet"><thead><tr><th rowspan="2">Nº</th><th rowspan="2">Estudante</th><th colspan="4">1º trimestre</th><th colspan="4">2º trimestre</th><th colspan="4">3º trimestre</th><th rowspan="2">Média anual</th><th rowspan="2">Situação</th></tr><tr>${["1", "2", "3"].map(() => "<th>N1</th><th>N2</th><th>N3</th><th>MF</th>").join("")}</tr></thead><tbody>${rows || `<tr><td colspan="16">Nenhuma nota registrada nesta turma e disciplina.</td></tr>`}</tbody></table><p class="legend">N1, N2 e N3: notas trimestrais. MF: média final do trimestre. RF: resultado final.</p></section>`;
 }
@@ -3207,8 +3222,8 @@ function teacherPdfReportTable(grades, subject, className) {
 function studentPdfReportTable(subjectEntries, allComplete, finalRecovery) {
   const scoreCell = (grade, trimester, field) => {
     const value = Number(getTrimester(grade, trimester)[field] || 0);
-    const hasLaunchedScore = hasTrimesterScores(grade, trimester);
-    return `<td class="${hasLaunchedScore && value < 6 ? "low-score" : ""}">${value.toFixed(1)}</td>`;
+    const scoreWasLaunched = hasLaunchedScore(grade, trimester, field);
+    return `<td class="${scoreWasLaunched && value < 6 ? "low-score" : ""}">${value.toFixed(1)}</td>`;
   };
   const averageCell = (value, hasLaunchedScore) => `<td class="average ${hasLaunchedScore && Number(value) < 6 ? "low-score" : ""}">${value}</td>`;
   const rows = subjectEntries.map(({ subject, grade }) => {
@@ -3322,6 +3337,10 @@ function setupUi() {
       renderCalendar();
     })
   );
+
+  $("[data-scroll-to-top]")?.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
 
   setInterval(() => {
     const media = $("[data-hero-media]");

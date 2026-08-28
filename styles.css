@@ -1282,6 +1282,19 @@ textarea.input {
   font-weight: 800;
 }
 
+.footer-top-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.footer-top-link:hover,
+.footer-top-link:focus-visible { text-decoration: underline; }
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1508,6 +1521,11 @@ textarea.input {
 }
 
 @media (max-width: 700px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
   .container {
     width: min(100% - 24px, 1180px);
   }
@@ -1595,4 +1613,95 @@ textarea.input {
   .admin-row {
     grid-template-columns: 1fr;
   }
+
+  /* Planilha de notas em formato de cartao: sem rolagem lateral no celular. */
+  .gradebook-table {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    gap: 12px;
+  }
+
+  .gradebook-head { display: none; }
+
+  .gradebook-row {
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 14px rgb(8 17 31 / 6%);
+  }
+
+  .gradebook-row > :first-child,
+  .gradebook-row > [data-recovery-cell],
+  .gradebook-row > [data-status] { grid-column: 1 / -1; }
+
+  .grade-input-cell,
+  .grade-value-cell {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .grade-input-cell::before,
+  .grade-value-cell::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+
+  .grade-input-cell .input { width: 100%; }
+  .grade-value-cell[data-average] { align-content: end; font-size: 1.15rem; }
+  .grade-value-cell[data-status] { width: max-content; }
+  .recovery-slot { grid-template-columns: 1fr; }
+
+  /* Relatorios em linhas verticais para leitura confortavel em telas pequenas. */
+  .table-scroll { overflow: visible; }
+  .report-table,
+  .student-detailed-report { min-width: 0; }
+  .report-table thead { display: none; }
+  .report-table,
+  .report-table tbody,
+  .report-table tr,
+  .report-table td { display: block; width: 100%; }
+  .report-table tr {
+    margin-bottom: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .report-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, 38%) 1fr;
+    gap: 8px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px;
+    text-align: right !important;
+  }
+  .report-table td:last-child { border-bottom: 0; }
+  .report-table td::before {
+    content: "Informacao";
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-align: left;
+  }
+  .report-table:not(.student-detailed-report) td:nth-child(1)::before { content: "Estudante"; }
+  .report-table:not(.student-detailed-report) td:nth-child(2)::before { content: "Turma"; }
+  .report-table:not(.student-detailed-report) td:nth-child(3)::before { content: "1o trimestre"; }
+  .report-table:not(.student-detailed-report) td:nth-child(4)::before { content: "2o trimestre"; }
+  .report-table:not(.student-detailed-report) td:nth-child(5)::before { content: "3o trimestre"; }
+  .report-table:not(.student-detailed-report) td:nth-child(6)::before { content: "Media anual"; }
+  .report-table:not(.student-detailed-report) td:nth-child(7)::before { content: "Situacao"; }
+  .student-detailed-report td:nth-child(1)::before { content: "Disciplina"; }
+  .student-detailed-report td:nth-child(2)::before, .student-detailed-report td:nth-child(6)::before, .student-detailed-report td:nth-child(10)::before { content: "Nota 1"; }
+  .student-detailed-report td:nth-child(3)::before, .student-detailed-report td:nth-child(7)::before, .student-detailed-report td:nth-child(11)::before { content: "Nota 2"; }
+  .student-detailed-report td:nth-child(4)::before, .student-detailed-report td:nth-child(8)::before, .student-detailed-report td:nth-child(12)::before { content: "Nota 3"; }
+  .student-detailed-report td:nth-child(5)::before, .student-detailed-report td:nth-child(9)::before, .student-detailed-report td:nth-child(13)::before { content: "Media do trimestre"; }
+  .student-detailed-report td:nth-child(14)::before { content: "Media anual"; }
+  .student-detailed-report td:nth-child(15)::before { content: "Situacao"; }
 }
