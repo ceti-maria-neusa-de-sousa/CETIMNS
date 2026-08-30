@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS students (
   name TEXT NOT NULL,
   classname TEXT NOT NULL,
   user TEXT UNIQUE,
-  password TEXT,
+  password TEXT NOT NULL DEFAULT '1234',
   must_change_password BOOLEAN NOT NULL DEFAULT false,
   is_journalist BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT now(),
@@ -135,6 +135,10 @@ ALTER TABLE news ADD COLUMN IF NOT EXISTS created_by_student_id TEXT;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS files JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS is_journalist BOOLEAN DEFAULT false;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
+-- Compatibilidade com bancos antigos que exigem senha, mas nao possuem padrao.
+UPDATE students SET password = '1234' WHERE password IS NULL;
+ALTER TABLE students ALTER COLUMN password SET DEFAULT '1234';
+ALTER TABLE students ALTER COLUMN password SET NOT NULL;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS category TEXT;

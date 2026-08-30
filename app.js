@@ -2519,10 +2519,13 @@ function renderStudentsAdmin(content) {
       name: String(form.get("name") || "").trim(),
       className: String(form.get("className") || "").trim(),
       user,
+      // A coluna pode ser NOT NULL em bancos criados por versoes anteriores.
+      // Inclui-la tambem nas edicoes evita que o upsert tente inserir NULL caso
+      // o identificador do registro nao seja encontrado.
+      password: normalizePassword(editing?.password) || DEFAULT_STUDENT_PASSWORD,
       is_journalist: Boolean(form.get("isJournalist"))
     };
     if (!id) {
-      payload.password = DEFAULT_STUDENT_PASSWORD;
       payload.must_change_password = true;
     }
     if (!payload.name || !payload.className) return toast("Informe nome e turma.");
