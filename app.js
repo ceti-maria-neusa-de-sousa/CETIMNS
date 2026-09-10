@@ -2042,10 +2042,15 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
     console.log("Tabela:", table);
     console.log("Payload:", payload);
 
-    const { data: savedData, error } = await supabase
-      .from(table)
-      .upsert([payload], { onConflict: conflict })
-      .select();
+    // Bancos antigos podem usar uma coluna `id` numérica gerada pelo próprio
+    // PostgreSQL (GENERATED ALWAYS). Para novos registros sem id, fazemos um
+    // INSERT e deixamos o banco atribuir o valor; para edições e catálogos,
+    // preservamos o UPSERT com a chave de conflito apropriada.
+    const isNewGeneratedIdRecord = conflict === "id" && (payload.id == null || payload.id === "");
+    const request = isNewGeneratedIdRecord
+      ? supabase.from(table).insert([payload])
+      : supabase.from(table).upsert([payload], { onConflict: conflict });
+    const { data: savedData, error } = await request.select();
 
     if (error) throw error;
     if (!savedData?.length) throw new Error(`O banco não confirmou o salvamento em ${table}.`);
@@ -2999,9 +3004,9 @@ function renderContentEditor(root) {
     event.preventDefault();
     const form = new FormData(event.target);
     const id = String(form.get("id") || "").trim();
-    // IDs gerados no navegador tornam o insert explícito. Isso evita que bancos
-    // antigos, sem default de UUID, descartem uma nova atividade silenciosamente.
-    const base = { id: id || makeId() };
+    // Ao criar, o banco define o ID. Isso é compatível tanto com UUIDs quanto
+    // com instalações antigas que usam identidade numérica.
+    const base = id ? { id } : {};
     let payload = base;
 
     if (type === "news") {
