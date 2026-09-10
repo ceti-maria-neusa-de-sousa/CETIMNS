@@ -1836,7 +1836,6 @@ function generatePdfReport(title, content, options = {}) {
 
 // ==================== ADMIN PAINEL ====================
 async function syncAdminData(message) {
-  await loadDataFromSupabase();
   renderPublic();
   if ((location.hash || "").replace("#", "").split("?")[0] === "login") {
     renderLoginPortal();
@@ -1984,6 +1983,34 @@ function currentSchoolConfig() {
   };
 }
 
+function applySavedRecord(table, record) {
+  const collectionByTable = {
+    classes: "classes",
+    subjects: "subjects",
+    students: "students",
+    teachers: "teachers",
+    grades: "grades",
+    news: "news",
+    events: "events",
+    activities: "activities",
+    achievements: "achievements"
+  };
+  const collectionName = collectionByTable[table];
+  if (!collectionName || !record) return;
+  const normalize = table === "students" ? normalizeStudentData : table === "teachers" ? normalizeTeacherData : table === "grades" ? normalizeGradeData : (value) => value;
+  const collection = state[collectionName];
+  const index = collection.findIndex((item) => idsEqual(item.id, record.id));
+  if (index >= 0) collection[index] = normalize(record);
+  else collection.push(normalize(record));
+  if (["classes", "subjects", "students", "teachers"].includes(table)) state[collectionName] = sortPeopleByName(state[collectionName]);
+  state.indicators = {
+    students: state.students.length,
+    projects: state.activities.length,
+    events: state.events.length,
+    awards: state.achievements.length
+  };
+}
+
 async function saveSchoolConfig(payload) {
   try {
     const request = state.schoolConfigId != null
@@ -2024,9 +2051,11 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
     if (!savedData?.length) throw new Error(`O banco não confirmou o salvamento em ${table}.`);
     console.log("Data:", savedData);
 
+    const savedRecord = savedData[0];
+    applySavedRecord(table, savedRecord);
     clearCache(table);
     await syncAdminData(successMessage);
-    return true;
+    return savedRecord;
 
   } catch (error) {
     // `console.error(error)` costuma aparecer apenas como "Object" no DevTools.
@@ -2059,6 +2088,8 @@ async function deleteRecord(table, column, value, successMessage = "Registro rem
   try {
     const { error } = await supabase.from(table).delete().eq(column, value);
     if (error) throw error;
+    const collectionName = ({ classes: "classes", subjects: "subjects", students: "students", teachers: "teachers", grades: "grades", news: "news", events: "events", activities: "activities", achievements: "achievements" })[table];
+    if (collectionName) state[collectionName] = state[collectionName].filter((item) => !idsEqual(item[column], value));
     clearCache(table);
     await syncAdminData(successMessage);
   } catch (error) {
@@ -2218,8 +2249,9 @@ function renderCatalogAdmin(content) {
         const form = new FormData(event.currentTarget);
         const name = String(form.get("name") || "").trim();
         if (!name) return toast("Informe o nome da turma.");
-        const { error } = await supabase.from("classes").update({ name }).eq("name", current);
+        const { data, error } = await supabase.from("classes").update({ name }).eq("name", current).select().single();
         if (error) throw error;
+        applySavedRecord("classes", data);
         clearCache("classes");
         await syncAdminData("Turma atualizada.");
       } catch (error) {
@@ -2251,8 +2283,9 @@ function renderCatalogAdmin(content) {
         const form = new FormData(event.currentTarget);
         const name = String(form.get("name") || "").trim();
         if (!name) return toast("Informe o nome da disciplina.");
-        const { error } = await supabase.from("subjects").update({ name }).eq("name", current);
+        const { data, error } = await supabase.from("subjects").update({ name }).eq("name", current).select().single();
         if (error) throw error;
+        applySavedRecord("subjects", data);
         clearCache("subjects");
         await syncAdminData("Disciplina atualizada.");
       } catch (error) {
@@ -2966,7 +2999,9 @@ function renderContentEditor(root) {
     event.preventDefault();
     const form = new FormData(event.target);
     const id = String(form.get("id") || "").trim();
-    const base = id ? { id } : {};
+    // IDs gerados no navegador tornam o insert explícito. Isso evita que bancos
+    // antigos, sem default de UUID, descartem uma nova atividade silenciosamente.
+    const base = { id: id || makeId() };
     let payload = base;
 
     if (type === "news") {
