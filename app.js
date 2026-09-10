@@ -58,6 +58,7 @@ let currentTeacherSubject = "";
 let currentTeacherClass = "";
 let currentStudentView = "bulletin";
 let isRefreshingData = false;
+let isSavingRecord = false;
 let adminEditState = {
   classId: null,
   subjectId: null,
@@ -700,6 +701,22 @@ function renderPublic() {
   renderActivities();
   renderAchievements();
   setupFilters();
+}
+
+function currentPageName() {
+  return (location.hash || "#inicio").replace("#", "").split("?")[0] || "inicio";
+}
+
+function renderVisiblePublicPage() {
+  const page = currentPageName();
+  if (page === "inicio") return renderHome();
+  if (page === "noticias") return renderNews();
+  if (page === "noticia") return renderNewsDetail();
+  if (page === "quem-somos") return renderAbout();
+  if (page === "calendario") return renderCalendar();
+  if (page === "atividades") return renderActivities();
+  if (page === "conquistas") return renderAchievements();
+  if (page === "contato") return renderContact();
 }
 
 function renderHome() {
@@ -1604,7 +1621,7 @@ function renderStudentNewsroom(session, student) {
       files: selectedFiles, created_by_student_id: student.id
     };
     if (!payload.title || !payload.content) return toast("Informe o título e o conteúdo da matéria.");
-    const saved = await upsertRecord("news", payload, "id", id ? "Matéria atualizada e enviada para revisão." : "Matéria enviada para revisão.");
+    const saved = await upsertRecord("news", payload, "id", id ? "Matéria atualizada e enviada para revisão." : "Matéria enviada para revisão.", { skipPortalRender: true });
     if (saved) { adminEditState.contentId = null; renderStudentNewsroom(session, student); }
   });
 
@@ -1835,10 +1852,11 @@ function generatePdfReport(title, content, options = {}) {
 }
 
 // ==================== ADMIN PAINEL ====================
-async function syncAdminData(message) {
-  renderPublic();
-  if ((location.hash || "").replace("#", "").split("?")[0] === "login") {
+async function syncAdminData(message, { skipPortalRender = false } = {}) {
+  if (currentPageName() === "login" && !skipPortalRender) {
     renderLoginPortal();
+  } else {
+    renderVisiblePublicPage();
   }
   if (message) toast(message);
 }
@@ -2037,7 +2055,12 @@ async function saveSchoolConfig(payload) {
   }
 }
 
-async function upsertRecord(table, payload, conflict = "id", successMessage = "Registro salvo com sucesso.") {
+async function upsertRecord(table, payload, conflict = "id", successMessage = "Registro salvo com sucesso.", options = {}) {
+  if (isSavingRecord) {
+    toast("Um salvamento já está em andamento. Aguarde a confirmação.");
+    return false;
+  }
+  isSavingRecord = true;
   try {
     console.log("Tabela:", table);
     console.log("Payload:", payload);
@@ -2059,7 +2082,7 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
     const savedRecord = savedData[0];
     applySavedRecord(table, savedRecord);
     clearCache(table);
-    await syncAdminData(successMessage);
+    await syncAdminData(successMessage, options);
     return savedRecord;
 
   } catch (error) {
@@ -2087,6 +2110,8 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
         : `Erro ao salvar ${table}.`
     );
     return false;
+  } finally {
+    isSavingRecord = false;
   }
 }
 async function deleteRecord(table, column, value, successMessage = "Registro removido com sucesso.") {
@@ -3056,8 +3081,11 @@ function renderContentEditor(root) {
     }
 
     const table = type;
-    const saved = await upsertRecord(table, payload, "id", id ? `${titleLabel} atualizado.` : `${titleLabel} salvo.`);
-    if (saved) adminEditState.contentId = null;
+    const saved = await upsertRecord(table, payload, "id", id ? `${titleLabel} atualizado.` : `${titleLabel} salvo.`, { skipPortalRender: true });
+    if (saved) {
+      adminEditState.contentId = null;
+      renderAdminContent();
+    }
   });
 
   $$("[data-content-edit]").forEach((button) =>
@@ -3394,11 +3422,10 @@ function setupUi() {
 
 // ==================== INICIALIZAÇÃO ====================
 async function refreshDataInBackground() {
-  if (document.hidden) return;
+  if (document.hidden || currentPageName() === "login") return;
   const updated = await loadDataFromSupabase({ useCache: true, forceNetwork: true });
   if (!updated) return;
-  renderPublic();
-  if ((location.hash || "").replace("#", "").split("?")[0] === "noticia") renderNewsDetail();
+  if (currentPageName() !== "login") renderVisiblePublicPage();
 }
 
 window.addEventListener("hashchange", route);
