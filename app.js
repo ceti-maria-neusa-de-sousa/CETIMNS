@@ -2412,7 +2412,7 @@ function renderStudentsAdmin(content) {
             .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "pt-BR"))
             .map(
               (student) => `
-                <article class="list-item" data-student-row data-student-name="${escapeHtml(normalizeLabel(student.name))}" data-student-user="${escapeHtml(normalizeLabel(student.user))}" data-student-class="${escapeHtml(normalizeLabel(getClassLabel(student.className)))}">
+                <article class="list-item admin-record" data-student-row data-student-name="${escapeHtml(normalizeLabel(student.name))}" data-student-user="${escapeHtml(normalizeLabel(student.user))}" data-student-class="${escapeHtml(normalizeLabel(getClassLabel(student.className)))}">
                   <div>
                     <strong>${escapeHtml(student.name)}</strong>
                     ${student.isJournalist ? '<span class="badge">Aluno jornalista</span>' : ""}
@@ -2666,9 +2666,10 @@ function renderTeachersAdmin(content) {
           sortPeopleByName(state.teachers)
             .map(
               (teacher) => `
-                <article class="list-item">
+                <article class="list-item admin-record">
                   <div>
                     <strong>${escapeHtml(teacher.name)}</strong>
+                    <p class="muted">Usuário: ${teacher.user ? `@${escapeHtml(teacher.user)}` : "não definido"}</p>
                     <p class="muted">Vínculos: ${escapeHtml(formatTeacherAssignments(teacher) || "Nenhum vínculo")}</p>
                   </div>
                   <div class="row-actions">

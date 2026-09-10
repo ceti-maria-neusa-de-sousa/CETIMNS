@@ -983,7 +983,7 @@ textarea.input {
 
 .list-item {
   display: grid;
-  grid-template-columns: 110px 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1280,6 +1280,44 @@ textarea.input {
 .score-low {
   color: #b91c1c;
   font-weight: 800;
+}
+
+/* Listas administrativas: mais compactas, sem esconder os dados do cadastro. */
+.admin-layout .list-view {
+  gap: 8px;
+  padding: 12px;
+}
+
+.admin-layout .list-item {
+  align-items: start;
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.admin-layout .list-item strong {
+  display: inline-block;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.admin-layout .list-item .muted {
+  margin: 3px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.admin-layout .admin-record-links {
+  overflow-wrap: anywhere;
+}
+
+.admin-layout .row-actions {
+  justify-content: flex-end;
+}
+
+.admin-layout .row-actions .button {
+  min-height: 34px;
+  padding: 6px 9px;
+  font-size: 0.8rem;
 }
 
 .footer-top-link {
