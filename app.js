@@ -404,9 +404,11 @@ async function saveGradeToSupabase(grade) {
     delete gradePayload.studentid;
     delete gradePayload.student_id;
     delete gradePayload.classname;
-    const { error } = await supabase
-      .from("grades")
-      .upsert(gradePayload, { onConflict: "id" });
+    const { id, ...dataWithoutId } = gradePayload;
+    const request = id != null && id !== ""
+      ? supabase.from("grades").update(dataWithoutId).eq("id", id)
+      : supabase.from("grades").insert([dataWithoutId]);
+    const { error } = await request;
     
     if (error) throw error;
     clearCache("grades");
@@ -428,13 +430,18 @@ async function saveGradesToSupabase(grades) {
     delete payload.classname;
     return payload;
   });
-  const { data, error } = await supabase
-    .from("grades")
-    .upsert(gradePayloads, { onConflict: "id" })
-    .select();
-  if (error) throw error;
+  const saved = [];
+  for (const payload of gradePayloads) {
+    const { id, ...dataWithoutId } = payload;
+    const request = id != null && id !== ""
+      ? supabase.from("grades").update(dataWithoutId).eq("id", id)
+      : supabase.from("grades").insert([dataWithoutId]);
+    const { data, error } = await request.select();
+    if (error) throw error;
+    saved.push(...(data || []));
+  }
   clearCache("grades");
-  return (data || []).map(normalizeGradeData);
+  return saved.map(normalizeGradeData);
 }
 
 function isValidGradeScore(value) {
@@ -2069,9 +2076,12 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
     // PostgreSQL (GENERATED ALWAYS). Para novos registros sem id, fazemos um
     // INSERT e deixamos o banco atribuir o valor; para edições e catálogos,
     // preservamos o UPSERT com a chave de conflito apropriada.
-    const isNewGeneratedIdRecord = conflict === "id" && (payload.id == null || payload.id === "");
-    const request = isNewGeneratedIdRecord
-      ? supabase.from(table).insert([payload])
+    const hasId = payload.id != null && payload.id !== "";
+    const { id, ...recordWithoutId } = payload;
+    const request = conflict === "id"
+      ? hasId
+        ? supabase.from(table).update(recordWithoutId).eq("id", id)
+        : supabase.from(table).insert([recordWithoutId])
       : supabase.from(table).upsert([payload], { onConflict: conflict });
     const { data: savedData, error } = await request.select();
 
@@ -2537,7 +2547,6 @@ function renderStudentsAdmin(content) {
           const user = createStudentUsername(student.name, existingUsernames, student.user || "");
           existingStudents.add(key);
           return {
-            id: makeId(),
             name: student.name,
             className: student.className,
             user,
@@ -2578,7 +2587,7 @@ function renderStudentsAdmin(content) {
     const existingUsernames = getExistingUsernames(id);
     const user = createStudentUsername(String(form.get("name") || ""), existingUsernames, id ? String(form.get("user") || "") : "");
     const payload = {
-      id: id || makeId(),
+      ...(id ? { id } : {}),
       name: String(form.get("name") || "").trim(),
       className: String(form.get("className") || "").trim(),
       user,
@@ -2723,7 +2732,7 @@ function renderTeachersAdmin(content) {
     let password = String(form.get("password") || "").trim();
     if (!password && !id) password = "1234";
     const payload = {
-      id: id || makeId(),
+      ...(id ? { id } : {}),
       name: String(form.get("name") || "").trim(),
       subject: subjects.join(", "),
       classes,
@@ -2734,7 +2743,7 @@ function renderTeachersAdmin(content) {
     const saved = await upsertRecord("teachers", payload, "id", id ? "Professor atualizado." : "Professor salvo.");
     if (!saved) return;
     try {
-      await replaceTeacherAssignments(payload.id, assignments);
+      await replaceTeacherAssignments(saved.id, assignments);
       await syncAdminData("Vínculos de disciplinas e turmas salvos.");
       adminEditState.teacherId = null;
     } catch (error) {
