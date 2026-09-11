@@ -257,6 +257,11 @@ function studentYearStatus(student) {
   return isStudentApprovedForYear(student) ? "Aprovado" : "Em andamento / pendente";
 }
 
+function isFinalYearClass(className) {
+  // Aceita nomenclaturas como "3º Ano", "3o ano", "3ª série" e "3 A".
+  return /^\s*3\s*(?:º|ª|o|a)?(?:\s|$)/i.test(String(className || ""));
+}
+
 // ==================== FUNÇÕES DE DADOS ====================
 async function loadDataFromSupabase({ useCache = false, forceNetwork = false } = {}) {
   try {
@@ -2479,7 +2484,7 @@ function renderStudentsAdmin(content) {
     </form>
     <section class="panel year-transition-panel">
       <h3>Encerramento do ano letivo</h3>
-      <p class="muted">Transfira somente alunos aprovados com todas as notas lançadas. Para concluintes, use “Marcar como formados”.</p>
+      <p class="muted">Transfira somente alunos aprovados com todas as notas lançadas. Apenas alunos aprovados do 3º ano podem ser marcados como formados.</p>
       <div class="form-grid">
         <label>Turma atual<select class="input" data-promotion-source><option value="">Selecione</option>${buildOptions(state.classes.map((item) => ({ value: item.name, label: item.name })))}</select></label>
         <label>Destino<select class="input" data-promotion-target><option value="">Selecione</option>${buildOptions(state.classes.map((item) => ({ value: item.name, label: item.name })))}</select></label>
@@ -2703,6 +2708,7 @@ function renderStudentsAdmin(content) {
   $("[data-graduate-students]")?.addEventListener("click", async () => {
     const eligible = getEligibleStudents();
     if (!promotionSource?.value) return toast("Selecione a turma dos concluintes.");
+    if (!isFinalYearClass(promotionSource.value)) return toast("Somente alunos do 3º ano podem ser marcados como formados.");
     if (!eligible.length) return toast("Não há alunos aptos para concluir nesta turma.");
     if (!window.confirm(`Marcar ${eligible.length} aluno(s) como formados?`)) return;
     const { error } = await supabase.from("students").update({ is_graduated: true, graduation_classname: promotionSource.value, graduation_date: new Date().toISOString().slice(0, 10) }).in("id", eligible.map((student) => student.id));
