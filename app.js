@@ -2255,10 +2255,23 @@ async function deleteStudent(student) {
   if (!window.confirm(`Excluir ${student.name}? As notas vinculadas a este aluno também serão removidas.`)) return;
   try {
     // Compatibilidade com bancos antigos sem a regra ON DELETE CASCADE nas notas.
-    const { error: gradesError } = await supabase.from("grades").delete().eq("studentId", student.id);
-    if (gradesError) throw gradesError;
-    const { error: studentError } = await supabase.from("students").delete().eq("id", student.id);
+    let { error: studentError } = await supabase.from("students").delete().eq("id", student.id);
+    if (studentError?.code === "23503") {
+      let gradesError = null;
+      for (const column of ["studentId", "studentid", "student_id"]) {
+        const result = await supabase.from("grades").delete().eq(column, student.id);
+        if (!result.error) {
+          gradesError = null;
+          break;
+        }
+        gradesError = result.error;
+      }
+      if (gradesError) throw gradesError;
+      ({ error: studentError } = await supabase.from("students").delete().eq("id", student.id));
+    }
     if (studentError) throw studentError;
+    state.students = state.students.filter((item) => !idsEqual(item.id, student.id));
+    state.grades = state.grades.filter((grade) => !idsEqual(grade.studentId, student.id));
     clearCache("grades");
     clearCache("students");
     await syncAdminData("Aluno e notas vinculadas removidos.");
