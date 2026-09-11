@@ -448,18 +448,34 @@ async function saveGradesToSupabase(grades) {
     delete payload.classname;
     return payload;
   });
+
+  // Inserções podem ser enviadas em uma única requisição. As atualizações têm
+  // valores diferentes por aluno, mas são executadas em paralelo para que uma
+  // turma inteira não aguarde uma nota de cada vez.
+  const newRecords = gradePayloads.filter((payload) => payload.id == null || payload.id === "");
+  const existingRecords = gradePayloads.filter((payload) => payload.id != null && payload.id !== "");
   const saved = [];
-  for (const payload of gradePayloads) {
-    const { id, ...dataWithoutId } = payload;
-    const request = id != null && id !== ""
-      ? supabase.from("grades").update(dataWithoutId).eq("id", id)
-      : supabase.from("grades").insert([dataWithoutId]);
-    const { data, error } = await request.select();
+  if (newRecords.length) {
+    const records = newRecords.map(({ id, ...record }) => record);
+    const { data, error } = await supabase.from("grades").insert(records).select();
     if (error) throw error;
     saved.push(...(data || []));
   }
+  const updated = await Promise.all(existingRecords.map(async (payload) => {
+    const { id, ...dataWithoutId } = payload;
+    const { data, error } = await supabase.from("grades").update(dataWithoutId).eq("id", id).select();
+    if (error) throw error;
+    return data || [];
+  }));
+  updated.forEach((records) => saved.push(...records));
   clearCache("grades");
   return saved.map(normalizeGradeData);
+}
+
+function areTrimestersEqual(left, right) {
+  const a = normalizeTrimester(left);
+  const b = normalizeTrimester(right);
+  return ["n1", "n2", "n3", "recoveryScore"].every((field) => Number(a[field] || 0) === Number(b[field] || 0)) && Boolean(a.recovery) === Boolean(b.recovery);
 }
 
 function isValidGradeScore(value) {
@@ -1276,8 +1292,12 @@ function renderTeacherPanel(session) {
       };
 
       gradeData.trimesters[currentTeacherTrimester] = { n1, n2, n3, recovery, recoveryScore };
-      gradeUpdates.push({ existing, gradeData });
+      if (!existing || !areTrimestersEqual(existing.trimesters?.[currentTeacherTrimester], gradeData.trimesters[currentTeacherTrimester])) {
+        gradeUpdates.push({ existing, gradeData });
+      }
     }
+
+    if (!gradeUpdates.length) return toast("Nenhuma nota foi alterada.");
 
     const submitButton = event.target.querySelector('button[type="submit"]');
     if (submitButton) {
@@ -1303,7 +1323,6 @@ function renderTeacherPanel(session) {
       });
       // Recarrega do banco para garantir que a tela mostre exatamente os dados
       // persistidos, inclusive depois de uma alteração em uma nota já lançada.
-      await loadDataFromSupabase({ forceNetwork: true });
       toast(`${gradeUpdates.length} nota(s) salva(s) com sucesso.`);
       renderTeacherPanel(session);
     } catch (error) {
