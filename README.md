@@ -54,6 +54,9 @@ Para ativar a troca obrigatoria de senha dos alunos, execute tambem
 `supabase-student-passwords.sql`. Novos alunos recebem a senha `1234`, devem troca-la
 no primeiro acesso e o administrador pode restaurar essa senha na lista de alunos.
 
+Para instalações já existentes, execute também `supabase-graduation.sql`. Ela adiciona
+o status de formado e ajusta a exclusão de alunos para remover as notas vinculadas.
+
 Se quiser reexecutar a criacao do admin manualmente no navegador, use `setup-admin.js`.
 
 ## Como a sincronizacao funciona

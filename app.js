@@ -238,13 +238,23 @@ function gradeAverage(grade) {
 }
 
 function hasAllGrades(studentId) {
-  const studentGrades = state.grades.filter((g) => g.studentId === studentId);
-  return studentGrades.every(
+  const studentGrades = state.grades.filter((g) => idsEqual(g.studentId, studentId));
+  return studentGrades.length > 0 && studentGrades.every(
     (g) =>
       getTrimesterFinalAverage(g, "1") !== "0.0" &&
       getTrimesterFinalAverage(g, "2") !== "0.0" &&
       getTrimesterFinalAverage(g, "3") !== "0.0"
   );
+}
+
+function isStudentApprovedForYear(student) {
+  const studentGrades = state.grades.filter((grade) => idsEqual(grade.studentId, student.id));
+  return studentGrades.length > 0 && hasAllGrades(student.id) && studentGrades.every((grade) => Number(gradeAverage(grade)) >= 6);
+}
+
+function studentYearStatus(student) {
+  if (student.isGraduated || student.is_graduated) return "Formado";
+  return isStudentApprovedForYear(student) ? "Aprovado" : "Em andamento / pendente";
 }
 
 // ==================== FUNÇÕES DE DADOS ====================
@@ -336,7 +346,10 @@ function normalizeStudentData(student = {}) {
     className: student.className || student.classname || "",
     user: student.user || "",
     password: student.password || "",
-    isJournalist: Boolean(student.is_journalist ?? student.isJournalist)
+    isJournalist: Boolean(student.is_journalist ?? student.isJournalist),
+    isGraduated: Boolean(student.is_graduated ?? student.isGraduated),
+    graduationClassName: student.graduation_classname || student.graduationClassName || "",
+    graduationDate: student.graduation_date || student.graduationDate || ""
   };
 }
 
@@ -2213,6 +2226,40 @@ async function optimizeImage(file) {
   }
 }
 
+async function deleteStudent(student) {
+  if (!student) return;
+  if (!window.confirm(`Excluir ${student.name}? As notas vinculadas a este aluno também serão removidas.`)) return;
+  try {
+    // Compatibilidade com bancos antigos sem a regra ON DELETE CASCADE nas notas.
+    const { error: gradesError } = await supabase.from("grades").delete().eq("studentId", student.id);
+    if (gradesError) throw gradesError;
+    const { error: studentError } = await supabase.from("students").delete().eq("id", student.id);
+    if (studentError) throw studentError;
+    clearCache("grades");
+    clearCache("students");
+    await syncAdminData("Aluno e notas vinculadas removidos.");
+  } catch (error) {
+    console.error("Erro ao remover aluno:", error);
+    toast(error?.message ? `Não foi possível remover o aluno: ${error.message}` : "Não foi possível remover o aluno.");
+  }
+}
+
+function graduationDocumentContent(student, type) {
+  const completedClass = student.graduationClassName || getClassLabel(student.className);
+  const completedDate = student.graduationDate ? new Date(`${student.graduationDate}T12:00:00`).toLocaleDateString("pt-BR") : new Date().toLocaleDateString("pt-BR");
+  if (type === "diploma") {
+    return `<section class="document-copy"><p>Certificamos que <strong>${escapeHtml(student.name)}</strong> concluiu o curso de ensino médio nesta instituição, tendo cumprido os requisitos acadêmicos previstos.</p><p>Turma de conclusão: <strong>${escapeHtml(completedClass)}</strong>.</p><p>Francisco Macedo - PI, ${escapeHtml(completedDate)}.</p><div class="document-signatures"><span>________________________________<br>Direção escolar</span><span>________________________________<br>Secretaria escolar</span></div></section>`;
+  }
+  const grades = state.grades.filter((grade) => idsEqual(grade.studentId, student.id));
+  const rows = grades.map((grade) => `<tr><td>${escapeHtml(getSubjectLabel(grade.subject))}</td><td>${escapeHtml(grade.className || completedClass)}</td><td>${escapeHtml(gradeAverage(grade))}</td><td>${Number(gradeAverage(grade)) >= 6 ? "Aprovado" : "Pendente"}</td></tr>`).join("");
+  return `<section class="document-copy"><p>Histórico escolar provisório de <strong>${escapeHtml(student.name)}</strong>, concluinte da turma <strong>${escapeHtml(completedClass)}</strong>.</p><table><thead><tr><th>Disciplina</th><th>Turma</th><th>Média final</th><th>Situação</th></tr></thead><tbody>${rows || "<tr><td colspan=\"4\">Não há notas registradas.</td></tr>"}</tbody></table><p>Documento emitido em ${escapeHtml(completedDate)}. Modelo provisório sujeito à conferência e validação da secretaria escolar.</p><div class="document-signatures"><span>________________________________<br>Secretaria escolar</span></div></section>`;
+}
+
+function generateGraduationDocument(student, type) {
+  const label = type === "diploma" ? "Diploma" : "Histórico escolar";
+  generatePdfReport(`${label} - ${student.name}`, graduationDocumentContent(student, type), { studentName: student.name, className: student.graduationClassName || getClassLabel(student.className) });
+}
+
 async function fileToDataUrl(file) {
   return readFileAsDataUrl(await optimizeImage(file));
 }
@@ -2430,6 +2477,16 @@ function renderStudentsAdmin(content) {
         ${editing ? '<button class="button ghost" type="button" data-student-cancel>Cancelar edição</button>' : ""}
       </div>
     </form>
+    <section class="panel year-transition-panel">
+      <h3>Encerramento do ano letivo</h3>
+      <p class="muted">Transfira somente alunos aprovados com todas as notas lançadas. Para concluintes, use “Marcar como formados”.</p>
+      <div class="form-grid">
+        <label>Turma atual<select class="input" data-promotion-source><option value="">Selecione</option>${buildOptions(state.classes.map((item) => ({ value: item.name, label: item.name })))}</select></label>
+        <label>Destino<select class="input" data-promotion-target><option value="">Selecione</option>${buildOptions(state.classes.map((item) => ({ value: item.name, label: item.name })))}</select></label>
+      </div>
+      <p class="muted" data-promotion-summary>Selecione uma turma para conferir os alunos aptos.</p>
+      <div class="row-actions"><button class="button primary" type="button" data-promote-students>Transferir aprovados</button><button class="button ghost" type="button" data-graduate-students>Marcar como formados</button></div>
+    </section>
     <div class="panel">
       <h3>Lista de alunos</h3>
       <div class="toolbar student-list-filters" aria-label="Filtros da lista de alunos">
@@ -2452,6 +2509,7 @@ function renderStudentsAdmin(content) {
                     <strong>${escapeHtml(student.name)}</strong>
                     ${student.isJournalist ? '<span class="badge">Aluno jornalista</span>' : ""}
                     <p class="muted">${escapeHtml(getClassLabel(student.className))}${student.user ? ` | @${escapeHtml(student.user)}` : ""}</p>
+                    <p class="muted"><strong>Situação:</strong> ${escapeHtml(studentYearStatus(student))}</p>
                     <p class="muted">
                       ${getTeachersForClass(student.className).length ? `Professor(es): ${getTeachersForClass(student.className).map((teacher) => escapeHtml(teacher.name)).join(", ")}` : "Professor(es): não vinculado"}
                       <br>
@@ -2462,6 +2520,7 @@ function renderStudentsAdmin(content) {
                     <button class="button ghost" type="button" data-student-edit data-id="${escapeHtml(student.id)}">Editar</button>
                     <button class="button ghost" type="button" data-student-reset-password data-id="${escapeHtml(student.id)}">Restaurar senha</button>
                     <button class="button ghost" type="button" data-student-delete data-id="${escapeHtml(student.id)}">Excluir</button>
+                    ${(student.isGraduated || student.is_graduated) ? `<button class="button ghost" type="button" data-student-diploma data-id="${escapeHtml(student.id)}">Diploma</button><button class="button ghost" type="button" data-student-history data-id="${escapeHtml(student.id)}">Histórico</button>` : ""}
                   </div>
                 </article>
               `
@@ -2620,6 +2679,38 @@ function renderStudentsAdmin(content) {
     studentUserInput.value = createStudentUsername(studentNameInput.value, getExistingUsernames());
   });
 
+  const promotionSource = $("[data-promotion-source]");
+  const promotionTarget = $("[data-promotion-target]");
+  const promotionSummary = $("[data-promotion-summary]");
+  const getEligibleStudents = () => state.students.filter((student) => getClassLabel(student.className) === getClassLabel(promotionSource?.value) && !(student.isGraduated || student.is_graduated) && isStudentApprovedForYear(student));
+  const updatePromotionSummary = () => {
+    if (!promotionSource?.value) return;
+    promotionSummary.textContent = `${getEligibleStudents().length} aluno(s) aprovado(s) e com todas as notas lançadas na turma ${promotionSource.value}.`;
+  };
+  promotionSource?.addEventListener("change", updatePromotionSummary);
+  $("[data-promote-students]")?.addEventListener("click", async () => {
+    const eligible = getEligibleStudents();
+    if (!promotionSource?.value || !promotionTarget?.value) return toast("Selecione a turma atual e a próxima turma.");
+    if (getClassLabel(promotionSource.value) === getClassLabel(promotionTarget.value)) return toast("A próxima turma deve ser diferente da turma atual.");
+    if (!eligible.length) return toast("Não há alunos aptos para transferir nesta turma.");
+    if (!window.confirm(`Transferir ${eligible.length} aluno(s) aprovado(s) para ${promotionTarget.value}?`)) return;
+    const classColumn = eligible[0].classname !== undefined ? "classname" : "className";
+    const { error } = await supabase.from("students").update({ [classColumn]: promotionTarget.value, is_graduated: false, graduation_classname: null, graduation_date: null }).in("id", eligible.map((student) => student.id));
+    if (error) return toast(`Não foi possível transferir os alunos: ${error.message}`);
+    clearCache("students");
+    await syncAdminData(`${eligible.length} aluno(s) transferido(s) para ${promotionTarget.value}.`);
+  });
+  $("[data-graduate-students]")?.addEventListener("click", async () => {
+    const eligible = getEligibleStudents();
+    if (!promotionSource?.value) return toast("Selecione a turma dos concluintes.");
+    if (!eligible.length) return toast("Não há alunos aptos para concluir nesta turma.");
+    if (!window.confirm(`Marcar ${eligible.length} aluno(s) como formados?`)) return;
+    const { error } = await supabase.from("students").update({ is_graduated: true, graduation_classname: promotionSource.value, graduation_date: new Date().toISOString().slice(0, 10) }).in("id", eligible.map((student) => student.id));
+    if (error) return toast(`Não foi possível concluir os alunos: ${error.message}`);
+    clearCache("students");
+    await syncAdminData(`${eligible.length} aluno(s) marcado(s) como formados.`);
+  });
+
   $$("[data-student-edit]").forEach((button) =>
     button.addEventListener("click", () => {
       adminEditState.studentId = button.dataset.id;
@@ -2629,9 +2720,12 @@ function renderStudentsAdmin(content) {
 
   $$("[data-student-delete]").forEach((button) =>
     button.addEventListener("click", async () => {
-      await deleteRecord("students", "id", button.dataset.id, "Aluno removido.");
+      await deleteStudent(state.students.find((student) => idsEqual(student.id, button.dataset.id)));
     })
   );
+
+  $$('[data-student-diploma]').forEach((button) => button.addEventListener("click", () => generateGraduationDocument(state.students.find((student) => idsEqual(student.id, button.dataset.id)), "diploma")));
+  $$('[data-student-history]').forEach((button) => button.addEventListener("click", () => generateGraduationDocument(state.students.find((student) => idsEqual(student.id, button.dataset.id)), "history")));
 
   $$('[data-student-reset-password]').forEach((button) =>
     button.addEventListener("click", async () => {
