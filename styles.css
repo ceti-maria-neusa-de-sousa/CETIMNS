@@ -1015,16 +1015,16 @@ textarea.input {
 
 .footer-socials {
   display: flex;
-  gap: 12px;
-  margin-top: 14px;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .footer-socials a {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 18px;
+  height: 18px;
   place-items: center;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--white);
   border-radius: 50%;
   transition: background-color 160ms ease, transform 160ms ease;
 }
@@ -1036,8 +1036,8 @@ textarea.input {
 }
 
 .footer-socials svg {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
