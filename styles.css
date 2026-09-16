@@ -1015,14 +1015,17 @@ textarea.input {
 
 .footer-socials {
   display: flex;
-  gap: 8px;
-  margin-top: 6px;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  gap: 6px;
+  margin-top: 3px;
 }
 
 .footer-socials a {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   place-items: center;
   color: var(--white);
   border-radius: 50%;
@@ -1036,8 +1039,8 @@ textarea.input {
 }
 
 .footer-socials svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -1312,6 +1315,10 @@ textarea.input {
 .score-low {
   color: #b91c1c;
   font-weight: 800;
+}
+
+.footer-grid > div:first-child {
+  position: relative;
 }
 
 /* Listas administrativas: mais compactas, sem esconder os dados do cadastro. */
