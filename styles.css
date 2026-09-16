@@ -1013,6 +1013,38 @@ textarea.input {
   margin: 5px 0 0;
 }
 
+.footer-socials {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.footer-socials a {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.72);
+  border-radius: 50%;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.footer-socials a:hover,
+.footer-socials a:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-2px);
+}
+
+.footer-socials svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .footer-grid {
   display: flex;
   align-items: center;
