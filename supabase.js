@@ -2,7 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const DEFAULT_SUPABASE_URL = "https://sbwtvvtyjtzouokugrxb.supabase.co";
 const DEFAULT_SUPABASE_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNid3R2dnR5anR6b3Vva3VncnhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NDQ3NDgsImV4cCI6MjA5ODEyMDc0OH0.GbUEMQIylmGhlYcjWynCGmGkQWMhSgsqWBXl8rBzOxU";
+  "sb_publishable_ao5ts1bdB_9sSXpaL_HBKQ_e6jaVZ-N";
 
 const runtimeConfig = globalThis.CETI_SUPABASE_CONFIG || {};
 const supabaseUrl = runtimeConfig.url || globalThis.CETI_SUPABASE_URL || DEFAULT_SUPABASE_URL;

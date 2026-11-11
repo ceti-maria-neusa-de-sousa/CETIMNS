@@ -2365,12 +2365,15 @@ async function upsertRecord(table, payload, conflict = "id", successMessage = "R
       details: error?.details,
       hint: error?.hint
     });
-    const databaseNeedsUpdate = error?.code === "PGRST204" || error?.code === "42501";
+    const databaseNeedsUpdate = error?.code === "PGRST204" || error?.code === "PGRST205" || error?.code === "42501";
+    const missingTable = error?.message?.match(/Could not find the table 'public\.([^']+)'/i)?.[1];
     const missingConflictConstraint = error?.code === "42P10";
     const missingColumn = error?.message?.match(/(?:Could not find the '([^']+)' column|column [^.]+\.([^ ]+) does not exist)/)?.slice(1).find(Boolean);
     toast(
       missingConflictConstraint
         ? `A tabela ${table} nao possui uma chave unica para “${conflict}”. Execute supabase-add-attachments.sql no Supabase.`
+        : missingTable
+        ? `A tabela “${missingTable}” ainda não existe no Supabase. Execute o arquivo supabase-create-missing-tables.sql no SQL Editor e atualize esta página.`
         : databaseNeedsUpdate
         ? missingColumn
           ? `Falta a coluna “${missingColumn}” no banco. Execute novamente supabase-add-attachments.sql no Supabase.`
