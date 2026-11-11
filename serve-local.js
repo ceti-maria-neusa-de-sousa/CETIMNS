@@ -1,6 +1,6 @@
-const fs = require("fs");
-const http = require("http");
-const path = require("path");
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
 
 const root = process.cwd();
 const port = Number(process.env.PORT) || 8080;
@@ -22,7 +22,7 @@ const types = {
 http
   .createServer((request, response) => {
     const pathname = decodeURIComponent(request.url.split("?")[0]);
-    const requestedPath = pathname === "/" ? "index.html" : pathname;
+    const requestedPath = pathname === "/" ? "/index.html" : pathname;
     const filePath = path.resolve(root, `.${requestedPath}`);
 
     if (!filePath.startsWith(root)) {

@@ -21,6 +21,14 @@ let state = {
   subjects: [],
   students: [],
   teachers: [],
+  staff: [],
+  notifications: [],
+  sectorRecords: [],
+  kitchenMenu: [],
+  kitchenStock: [],
+  dietaryRestrictions: [],
+  supportRequests: [],
+  studentDocuments: [],
   teacherAssignments: [],
   grades: [],
   news: [],
@@ -57,6 +65,8 @@ let currentTeacherTrimester = "1";
 let currentTeacherSubject = "";
 let currentTeacherClass = "";
 let currentStudentView = "bulletin";
+let currentStaffView = "overview";
+let currentKitchenView = "operations";
 let isRefreshingData = false;
 let isSavingRecord = false;
 let adminEditState = {
@@ -93,7 +103,7 @@ const sortGradesByStudentName = (grades) =>
   });
 const getExistingUsernames = (excludedId = null) =>
   new Set(
-    [...state.students, ...state.teachers]
+    [...state.students, ...state.teachers, ...state.staff]
       .filter((person) => !excludedId || !idsEqual(person.id, excludedId))
       .map((person) => normalizeUser(person.user || ""))
       .filter(Boolean)
@@ -273,11 +283,19 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
       const request = () => safeTableSelect(table, transform, optional);
       return useCache ? fetchWithCache(table, "all", request, { force: forceNetwork }) : request();
     };
-    const [classesData, subjectsData, studentsData, teachersData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
+    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
       loadTable("classes"),
       loadTable("subjects"),
       loadTable("students"),
       loadTable("teachers"),
+      loadTable("staff", undefined, true),
+      loadTable("private_notifications", undefined, true),
+      loadTable("sector_records", undefined, true),
+      loadTable("kitchen_menu", undefined, true),
+      loadTable("kitchen_stock", undefined, true),
+      loadTable("dietary_restrictions", undefined, true),
+      loadTable("support_requests", undefined, true),
+      loadTable("student_documents", undefined, true),
       loadTable("teacher_assignments", undefined, true),
       loadTable("grades"),
       loadTable("news"),
@@ -295,6 +313,14 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
       .filter((item) => item.name);
     state.students = sortPeopleByName((studentsData || []).map(normalizeStudentData));
     state.teachers = sortPeopleByName((teachersData || []).map(normalizeTeacherData));
+    state.staff = sortPeopleByName(staffData || []);
+    state.notifications = notificationsData || [];
+    state.sectorRecords = sectorRecordsData || [];
+    state.kitchenMenu = kitchenMenuData || [];
+    state.kitchenStock = kitchenStockData || [];
+    state.dietaryRestrictions = dietaryRestrictionsData || [];
+    state.supportRequests = supportRequestsData || [];
+    state.studentDocuments = studentDocumentsData || [];
     state.teacherAssignments = (teacherAssignmentsData || []).map(normalizeTeacherAssignmentData);
     state.grades = (gradesData || []).map(normalizeGradeData);
     state.news = newsData || [];
@@ -1032,6 +1058,13 @@ async function findLogin(user, password) {
       .eq("password", secret);
     if (teachers?.length) return { role: "teacher", id: teachers[0].id, name: teachers[0].name };
 
+    const { data: staff } = await supabase
+      .from("staff")
+      .select("*")
+      .ilike("user", username)
+      .eq("password", secret);
+    if (staff?.length) return { role: "staff", id: staff[0].id, name: staff[0].name, sector: staff[0].sector };
+
     const { data: students } = await supabase
       .from("students")
       .select("*")
@@ -1070,6 +1103,10 @@ function renderLoginPortal() {
     }
     if (session?.role === "teacher") {
       renderTeacherPanel(session);
+      return;
+    }
+    if (session?.role === "staff") {
+      renderStaffPanel(session);
       return;
     }
     if (session?.role === "student") {
@@ -1154,6 +1191,8 @@ function renderTeacherPanel(session) {
       <div class="row-actions">
         <button class="button ghost" data-teacher-report>Relatório da disciplina</button>
         <a class="button ghost" href="https://portal.seduc.pi.gov.br/" target="_blank" rel="noopener">Abrir iSEDUC</a>
+        ${notificationBell(session)}
+        ${secretaryChatButton(session)}
         <button class="button ghost" data-logout>Sair</button>
       </div>
     </div>
@@ -1210,8 +1249,17 @@ function renderTeacherPanel(session) {
       </div>
       ${teacherReportTable(teacher, teacherGrades, activeSubject, activeClass)}
     </div>
+    <section class="panel">
+      <h3>Enviar arquivo para impressão</h3>
+      <form class="contact-form" data-print-request-form>
+        <label>Orientação para a Secretaria<input class="input" name="details" placeholder="Ex.: 20 cópias, frente e verso"></label>
+        <label>Arquivo<input class="input" name="file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*" required></label>
+        <button class="button primary">Enviar para impressão</button>
+      </form>
+    </section>
   `;
 
+  bindSecretaryChat(session);
   $("[data-logout]").addEventListener("click", () => {
     clearSession();
     renderLoginPortal();
@@ -1251,6 +1299,14 @@ function renderTeacherPanel(session) {
       teacherPdfReportTable(teacherGrades, activeSubject, activeClass),
       { landscape: true, officialSheet: true, className: activeClass, subject: activeSubject, teacherName: teacher.name }
     );
+  });
+
+  $("[data-print-request-form]").addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target); const file = form.get("file");
+    if (!file?.size) return toast("Selecione o arquivo para impressão.");
+    const [attachment] = await readAttachments([file]);
+    const saved = await upsertRecord("support_requests", { requester_id: session.id, requester_name: teacher.name, requester_role: "teacher", subject: "Pedido de impressão", message: String(form.get("details") || "Arquivo enviado para impressão."), attachment, status: "Aberto" }, "id", "Arquivo enviado à Secretaria.", { skipPortalRender: true });
+    if (saved) { await upsertRecord("private_notifications", { title: "Pedido de impressão", message: `${teacher.name} enviou um arquivo para impressão.`, recipient_sector: "secretaria" }, "id", "", { skipPortalRender: true }); event.target.reset(); }
   });
 
   setupTeacherGradeLivePreview(teacher, currentTeacherTrimester, activeSubject, activeClass);
@@ -1321,6 +1377,20 @@ function renderTeacherPanel(session) {
           state.grades.push(savedGrade);
         }
       });
+      try {
+        const { data: notices, error: noticeError } = await supabase.from("private_notifications").insert(
+          gradeUpdates.map(({ gradeData }) => ({
+            title: "Notas atualizadas",
+            message: `Foram lançadas ou atualizadas notas de ${getSubjectLabel(gradeData.subject)} no ${currentTeacherTrimester}º trimestre.`,
+            recipient_student_id: gradeData.studentId
+          }))
+        ).select();
+        if (noticeError) throw noticeError;
+        state.notifications.push(...(notices || []));
+        clearCache("private_notifications");
+      } catch (noticeError) {
+        console.warn("Notas salvas, mas não foi possível criar a notificação:", noticeError);
+      }
       // Recarrega do banco para garantir que a tela mostre exatamente os dados
       // persistidos, inclusive depois de uma alteração em uma nota já lançada.
       toast(`${gradeUpdates.length} nota(s) salva(s) com sucesso.`);
@@ -1520,6 +1590,8 @@ function renderStudentPanel(session) {
       <div class="row-actions">
         ${student.isJournalist ? '<button class="button primary" type="button" data-student-newsroom>Jornal escolar</button>' : ""}
         <button class="button ghost" data-student-report>Ver boletim</button>
+        ${notificationBell(session)}
+        ${secretaryChatButton(session)}
         <button class="button ghost" data-logout>Sair</button>
       </div>
     </div>
@@ -1572,6 +1644,7 @@ function renderStudentPanel(session) {
     renderLoginPortal();
   });
 
+  bindSecretaryChat(session);
   const newsroomButton = $("[data-student-newsroom]");
   if (newsroomButton) newsroomButton.addEventListener("click", () => {
     currentStudentView = "newsroom";
@@ -1617,7 +1690,7 @@ function renderStudentNewsroom(session, student) {
   root.innerHTML = `
     <div class="portal-heading">
       <div><span class="badge">Aluno jornalista</span><h2>Redação do jornal escolar</h2><p class="muted">Crie a matéria e envie para o administrador publicar.</p></div>
-      <div class="row-actions"><button class="button ghost" type="button" data-student-bulletin>Meu boletim</button><button class="button ghost" type="button" data-logout>Sair</button></div>
+      <div class="row-actions"><button class="button ghost" type="button" data-student-bulletin>Meu boletim</button>${notificationBell(session)}<button class="button ghost" type="button" data-logout>Sair</button></div>
     </div>
     <form class="panel contact-form" data-journalist-form>
       <input type="hidden" name="id" value="${escapeHtml(item.id || "")}">
@@ -1896,6 +1969,131 @@ function generatePdfReport(title, content, options = {}) {
 }
 
 // ==================== ADMIN PAINEL ====================
+const sectorLabels = { secretaria: "Secretaria Escolar", cozinha: "Cozinha / Merenda", servicos_gerais: "Serviços Gerais e Manutenção" };
+const sectorModules = {
+  secretaria: ["Documentos", "Matrículas e rematrículas", "Frequência e turmas", "Arquivo do aluno"],
+  cozinha: ["Cardápio nutricional", "Estoque da despensa", "Validade e estoque mínimo", "Solicitação de insumos", "Restrições alimentares"],
+  servicos_gerais: ["Chamados de manutenção", "Cronograma de limpeza", "Produtos e EPIs", "Checklist diário"]
+};
+
+function privateNotificationsFor(session) {
+  const audience = session.role === "student" ? "all_students" : session.role === "teacher" ? "all_teachers" : session.role === "staff" ? "all_staff" : "all_admins";
+  return state.notifications.filter((item) => item.recipient_id === session.id || item.recipient_student_id === session.id || item.recipient_role === audience || item.recipient_role === "all_school" || (session.role === "staff" && item.recipient_sector === session.sector));
+}
+
+function notificationBell(session) {
+  const count = privateNotificationsFor(session).length;
+  return `<button class="button ghost notification-bell" type="button" data-notification-bell aria-label="Abrir avisos">&#128276;${count ? `<span class="notification-count">${count}</span>` : ""}</button>`;
+}
+
+function openNotificationPanel() {
+  const session = getSession();
+  if (!session) return;
+  const notes = privateNotificationsFor(session).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const root = $("[data-login-root]");
+  const old = $("[data-notification-panel]", root);
+  if (old) return old.remove();
+  root.insertAdjacentHTML("afterbegin", `<section class="panel notification-panel" data-notification-panel><div class="portal-heading compact"><div><h2>🔔 Avisos</h2><p class="muted">Mensagens direcionadas ao seu painel.</p></div><button class="button ghost" type="button" data-notification-close>Fechar</button></div><div class="list-view">${notes.map((note) => `<article class="list-item"><div><strong>${escapeHtml(note.title)}</strong><p class="muted">${escapeHtml(note.message)}</p></div></article>`).join("") || emptyState("Você não possui avisos no momento.")}</div></section>`);
+  $("[data-notification-close]", root).addEventListener("click", () => $("[data-notification-panel]", root)?.remove());
+}
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-notification-bell]")) openNotificationPanel();
+});
+
+function secretaryChatButton(session) {
+  if (!session || !["student", "teacher"].includes(session.role)) return "";
+  return `<button class="secretary-chat-button" type="button" data-secretary-chat title="Falar com a Secretaria">☁<span>Secretaria</span></button>`;
+}
+function bindSecretaryChat(session) {
+  $("[data-secretary-chat]")?.addEventListener("click", () => {
+    const root = $("[data-login-root]");
+    if ($("[data-secretary-chat-box]", root)) return;
+    root.insertAdjacentHTML("beforeend", `<section class="panel secretary-chat-box" data-secretary-chat-box><div class="portal-heading compact"><h3>Falar com a Secretaria</h3><button class="button ghost" data-chat-close>Fechar</button></div><form class="contact-form" data-secretary-chat-form><label>Assunto<select class="input" name="subject"><option>Dúvida</option><option>Pedido de impressão</option><option>Documento</option><option>Outro atendimento</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar</button></form></section>`);
+    $("[data-chat-close]", root).addEventListener("click", () => $("[data-secretary-chat-box]", root)?.remove());
+    $("[data-secretary-chat-form]", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_id: session.id, requester_name: session.name, requester_role: session.role, subject: form.get("subject"), message: form.get("message"), status: "Aberto" }, "id", "Mensagem enviada à Secretaria.", { skipPortalRender: true }); if (saved) { await upsertRecord("private_notifications", { title: "Novo atendimento", message: `${session.name}: ${form.get("subject")}`, recipient_sector: "secretaria" }, "id", "", { skipPortalRender: true }); $("[data-secretary-chat-box]", root)?.remove(); } });
+  });
+}
+
+function downloadAttachment(file) {
+  if (!file?.data) return;
+  const link = document.createElement("a");
+  link.href = file.data;
+  link.download = file.name || "arquivo";
+  document.body.append(link); link.click(); link.remove();
+}
+
+function renderStaffPanel(session) {
+  const root = $("[data-login-root]");
+  const employee = state.staff.find((item) => idsEqual(item.id, session.id));
+  if (!employee) { clearSession(); return renderLoginForm(); }
+  if (employee.sector === "cozinha") return renderKitchenPanel(session, employee);
+  if (employee.sector === "secretaria") return renderSecretaryPanel(session, employee);
+  const notes = privateNotificationsFor(session).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const records = state.sectorRecords.filter((item) => item.sector === employee.sector).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const modules = sectorModules[employee.sector] || [];
+  root.innerHTML = `
+    <div class="portal-heading"><div><h2>${escapeHtml(sectorLabels[employee.sector] || "Funcionário")}: ${escapeHtml(employee.name)}</h2><p class="muted">Painel interno. Os avisos abaixo não são publicados no site.</p></div><div class="row-actions">${notificationBell(session)}<button class="button ghost" data-logout>Sair</button></div></div>
+    <div class="segmented">${["overview", "records"].map((view) => `<button type="button" class="${currentStaffView === view ? "active" : ""}" data-staff-view="${view}">${view === "overview" ? "Painel" : "Registros"}</button>`).join("")}</div>
+    ${currentStaffView === "overview" ? `<div class="staff-grid"><section class="panel"><h3>Avisos recebidos</h3>${notes.map((note) => `<article class="list-item"><div><strong>${escapeHtml(note.title)}</strong><p class="muted">${escapeHtml(note.message)}</p></div></article>`).join("") || emptyState("Nenhum aviso para você.")}</section><section class="panel"><h3>Ferramentas do setor</h3><div class="list-view">${modules.map((module) => `<article class="list-item"><div><strong>${escapeHtml(module)}</strong><p class="muted">Registre e acompanhe as demandas deste item na aba Registros.</p></div></article>`).join("")}</div></section></div>` : `
+      <section class="panel"><h3>Novo registro</h3><form class="contact-form" data-sector-record-form><label>Área<select class="input" name="module" required>${buildOptions(modules)}</select></label><label>Título<input class="input" name="title" required></label><label>Detalhes<textarea class="input" name="details" rows="4" required></textarea></label><button class="button primary">Salvar registro</button></form></section>
+      <section class="panel"><h3>Registros do setor</h3><div class="list-view">${records.map((record) => `<article class="list-item"><div><strong>${escapeHtml(record.module)} — ${escapeHtml(record.title)}</strong><p class="muted">${escapeHtml(record.details)}</p></div></article>`).join("") || emptyState("Ainda não há registros.")}</div></section>`}
+  `;
+  if (employee.sector === "secretaria" && currentStaffView === "overview") {
+    root.insertAdjacentHTML("beforeend", `<section class="panel"><h3>Enviar aviso</h3><form class="contact-form" data-secretary-notification-form><label>Destinatário<select class="input" name="recipient"><option value="all_students">Alunos</option><option value="all_staff">Funcionários</option><option value="all_school">Toda a escola</option></select></label><label>Título<input class="input" name="title" required></label><label>Mensagem<textarea class="input" name="message" rows="3" required></textarea></label><button class="button primary">Enviar aviso</button></form></section>`);
+  }
+  $(".staff-grid > section:first-child", root)?.remove();
+  $("[data-secretary-notification-form]", root)?.closest("section")?.remove();
+  $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); });
+  $$('[data-staff-view]').forEach((button) => button.addEventListener("click", () => { currentStaffView = button.dataset.staffView; renderStaffPanel(session); }));
+  $("[data-sector-record-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target);
+    const saved = await upsertRecord("sector_records", { sector: employee.sector, module: form.get("module"), title: form.get("title"), details: form.get("details"), created_by: employee.id }, "id", "Registro salvo.", { skipPortalRender: true });
+    if (saved) renderStaffPanel(session);
+  });
+  $("[data-secretary-notification-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target);
+    const saved = await upsertRecord("private_notifications", { title: String(form.get("title")).trim(), message: String(form.get("message")).trim(), recipient_role: form.get("recipient") }, "id", "Aviso enviado.", { skipPortalRender: true });
+    if (saved) renderStaffPanel(session);
+  });
+}
+
+function renderSecretaryPanel(session, employee) {
+  const root = $("[data-login-root]"); const requests = state.supportRequests.slice().sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  root.innerHTML = `<div class="portal-heading"><div><h2>Secretaria Escolar: ${escapeHtml(employee.name)}</h2><p class="muted">Atendimento, documentos e cadastros escolares.</p></div><div class="row-actions">${notificationBell(session)}${requests.some((item) => item.attachment?.data) ? '<button class="button ghost" data-download-print>Baixar último arquivo</button>' : ''}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="active" data-secretary-tab="requests">Atendimentos</button><button data-secretary-tab="people">Escola</button><button data-secretary-tab="documents">Documentos</button></div><div data-secretary-content></div>`;
+  const content = $("[data-secretary-content]"); const show = (tab) => { $$('[data-secretary-tab]').forEach((b) => b.classList.toggle("active", b.dataset.secretaryTab === tab)); if (tab === "people") { const staffRows = [...state.teachers.filter((p) => p.user).map((p) => ({ name:p.name, role:"Professor(a)" })), ...state.staff.filter((p) => p.user).map((p) => ({ name:p.name, role:sectorLabels[p.sector] || p.sector }))].sort((a,b) => a.name.localeCompare(b.name,"pt-BR")); const students = [...state.students].sort((a,b) => `${getClassLabel(a.className)}|${a.name}`.localeCompare(`${getClassLabel(b.className)}|${b.name}`,"pt-BR")); content.innerHTML = `<section class="panel"><h3>Funcionários com login cadastrado</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Nome</th><th>Função</th></tr></thead><tbody>${staffRows.map((person) => `<tr><td>${escapeHtml(person.name)}</td><td>${escapeHtml(person.role)}</td></tr>`).join("") || `<tr><td colspan="2">Nenhum funcionário com login cadastrado.</td></tr>`}</tbody></table></div></section><section class="panel"><h3>Alunos por turma</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Turma</th><th>Aluno</th></tr></thead><tbody>${students.map((student) => `<tr><td>${escapeHtml(getClassLabel(student.className))}</td><td>${escapeHtml(student.name)}</td></tr>`).join("")}</tbody></table></div></section>`; } else if (tab === "documents") { content.innerHTML = `<section class="panel"><h3>Enviar documento ao aluno</h3><form class="contact-form" data-document-form><label>Aluno<select class="input" name="student_id" required>${buildOptions(state.students.map((s) => ({ value:s.id, label:`${s.name} — ${getClassLabel(s.className)}` })) )}</select></label><label>Tipo<select class="input" name="document_type"><option>Diploma</option><option>Histórico escolar</option><option>Declaração</option></select></label><label>Arquivo<input class="input" name="file" type="file" accept=".pdf,.doc,.docx,image/*" required></label><button class="button primary">Enviar documento</button></form></section>`; $("[data-document-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const file = form.get("file"); if (!file?.size) return; const [attachment] = await readAttachments([file]); const saved = await upsertRecord("student_documents", { student_id: form.get("student_id"), document_type: form.get("document_type"), file: attachment }, "id", "Documento enviado."); if (saved) await upsertRecord("private_notifications", { title:"Novo documento", message:`A Secretaria enviou: ${form.get("document_type")}.`, recipient_student_id: form.get("student_id") }, "id", "", { skipPortalRender:true }); }); } else { content.innerHTML = `<section class="panel"><h3>Solicitações recebidas</h3><div class="list-view">${requests.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.message)}</p>${item.reply ? `<p><strong>Resposta:</strong> ${escapeHtml(item.reply)}</p>` : `<button class="button ghost" data-reply-id="${item.id}">Responder</button>`}</div></article>`).join("") || emptyState("Nenhum atendimento.")}</div></section>`; $$('[data-reply-id]').forEach((b) => b.addEventListener("click", async () => { const reply = window.prompt("Resposta para a solicitação:"); const item = requests.find((r) => idsEqual(r.id,b.dataset.replyId)); if (!reply?.trim() || !item) return; await upsertRecord("support_requests", { ...item, reply:reply.trim(), status:"Respondido" }, "id", "Resposta enviada."); await upsertRecord("private_notifications", { title:"Resposta da Secretaria", message:reply.trim(), recipient_id:item.requester_id }, "id", "", { skipPortalRender:true }); show("requests"); })); } };
+  $("[data-download-print]")?.addEventListener("click", () => { const item = requests.find((request) => request.attachment?.data); if (item) downloadAttachment(item.attachment); }); $$('[data-secretary-tab]').forEach((b) => b.addEventListener("click", () => show(b.dataset.secretaryTab))); $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); }); show("requests");
+}
+
+function renderKitchenPanel(session, employee) {
+  const root = $("[data-login-root]");
+  const today = new Date().toISOString().slice(0, 10);
+  const monday = new Date(); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const weekDays = Array.from({ length: 5 }, (_, index) => { const date = new Date(monday); date.setDate(monday.getDate() + index); return date.toISOString().slice(0, 10); });
+  const weekdayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+  const menuByDay = Object.fromEntries(state.kitchenMenu.map((item) => [item.menu_date, item]));
+  const low = state.kitchenStock.filter((item) => Number(item.quantity) <= Number(item.minimum_quantity) || (item.expiry_date && item.expiry_date <= new Date(Date.now()+7*864e5).toISOString().slice(0,10)));
+  root.innerHTML = `<div class="portal-heading"><div><h2>Cozinha / Merenda: ${escapeHtml(employee.name)}</h2><p class="muted">Confirme o preparo para registrar a baixa dos ingredientes.</p></div><div class="row-actions">${notificationBell(session)}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="${currentKitchenView === "operations" ? "active" : ""}" data-kitchen-view="operations">Operação</button><button class="${currentKitchenView === "reports" ? "active" : ""}" data-kitchen-view="reports">Relatórios de estoque</button></div>
+  ${currentKitchenView === "reports" ? `<section class="panel"><h3>Relatório de estoque</h3><div class="toolbar"><input class="input" data-stock-filter type="search" placeholder="Filtrar por alimento"><select class="input" data-stock-status><option value="">Todas as situações</option><option value="low">Estoque mínimo</option><option value="expiry">Validade próxima</option><option value="available">Disponível</option></select><select class="input" data-stock-order><option value="name">Ordenar: alimento</option><option value="quantity">Ordenar: quantidade</option><option value="expiry">Ordenar: validade</option></select></div><div class="table-scroll"><table class="report-table"><thead><tr><th>Produto</th><th>Quantidade</th><th>Mínimo</th><th>Validade</th><th>Situação</th></tr></thead><tbody data-stock-report>${state.kitchenStock.map((item) => `<tr data-stock-row data-name="${escapeHtml(normalizeLabel(item.name))}" data-quantity="${item.quantity}" data-expiry="${escapeHtml(item.expiry_date || "9999-12-31")}" data-low="${Number(item.quantity) <= Number(item.minimum_quantity)}" data-expiring="${Boolean(item.expiry_date && item.expiry_date <= new Date(Date.now()+7*864e5).toISOString().slice(0,10))}"><td>${escapeHtml(item.name)}</td><td>${item.quantity} ${escapeHtml(item.unit || "")}</td><td>${item.minimum_quantity}</td><td>${escapeHtml(item.expiry_date || "—")}</td><td>${Number(item.quantity) <= Number(item.minimum_quantity) ? "Estoque mínimo" : item.expiry_date && item.expiry_date <= new Date(Date.now()+7*864e5).toISOString().slice(0,10) ? "Validade próxima" : "Disponível"}</td></tr>`).join("") || `<tr><td colspan="5">Nenhum item cadastrado.</td></tr>`}</tbody></table></div></section>` : `
+  <section class="panel"><h3>Cardápio nutricional — semana</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Dia</th><th>Cardápio planejado</th><th>Ingredientes</th><th>Confirmação</th></tr></thead><tbody>${weekDays.map((date, index) => { const item = menuByDay[date]; const done = item?.status || ""; return `<tr><td><strong>${weekdayNames[index]}</strong></td><td>${escapeHtml(item?.meal || "Não publicado")}${item?.actual_meal ? `<br><small>Realizado: ${escapeHtml(item.actual_meal)}</small>` : ""}</td><td>${escapeHtml(item?.ingredients || "—")}</td><td>${!item ? "—" : done ? `<span class="badge">${escapeHtml(done)}</span>` : `<div class="row-actions"><button class="button primary" data-kitchen-made data-id="${item.id}">Fez</button><button class="button ghost" data-kitchen-no-class data-id="${item.id}">Sem aula</button><button class="button ghost" data-kitchen-change data-id="${item.id}">Mudou</button></div>`}</td></tr>`; }).join("")}</tbody></table></div></section>
+  <section class="panel"><h3>Estoque e validade</h3>${low.length ? `<p class="warning-text">${low.length} item(ns) exigem atenção: estoque mínimo ou validade próxima.</p>` : ""}<div class="table-scroll"><table class="report-table"><thead><tr><th>Produto</th><th>Quantidade disponível</th><th>Mínimo</th><th>Validade</th></tr></thead><tbody>${state.kitchenStock.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td><strong>${item.quantity} ${escapeHtml(item.unit || "")}</strong></td><td>${item.minimum_quantity}</td><td>${escapeHtml(item.expiry_date || "—")}</td></tr>`).join("") || `<tr><td colspan="4">Nenhum item cadastrado.</td></tr>`}</tbody></table></div><form class="contact-form" data-kitchen-stock-form><h4>Registrar quantidade em estoque</h4><label>Produto<input class="input" name="name" required></label><label>Quantidade atual<input class="input" name="quantity" type="number" min="0" step="0.01" required></label><label>Unidade<input class="input" name="unit" placeholder="kg, L, unidade"></label><label>Estoque mínimo<input class="input" name="minimum_quantity" type="number" min="0" step="0.01" required></label><label>Validade<input class="input" name="expiry_date" type="date"></label><button class="button primary">Salvar estoque</button></form><form class="contact-form" data-restock-form><label>Itens para reposição<textarea class="input" name="items" rows="3" required placeholder="Ex.: Arroz 10 kg; leite 20 L"></textarea></label><button class="button primary">Solicitar reposição à administração</button></form></section>
+  <section class="panel"><h3>Restrições alimentares</h3><div class="list-view">${state.dietaryRestrictions.map((item) => { const student = state.students.find((person) => idsEqual(person.id, item.student_id)); return `<article class="list-item"><div><strong>${escapeHtml(student?.name || item.student_name || "Aluno")}${student ? ` — ${escapeHtml(getClassLabel(student.className))}` : item.class_name ? ` — ${escapeHtml(item.class_name)}` : ""}</strong><p class="muted">${escapeHtml(item.restriction)}</p></div></article>`; }).join("") || emptyState("Nenhuma restrição cadastrada.")}</div></section>`}`;
+  $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); });
+  $$('[data-kitchen-view]').forEach((button) => button.addEventListener("click", () => { currentKitchenView = button.dataset.kitchenView; renderKitchenPanel(session, employee); }));
+  const applyStockFilters = () => { const text = normalizeLabel($("[data-stock-filter]")?.value || ""); const status = $("[data-stock-status]")?.value || ""; $$('[data-stock-row]').forEach((row) => { row.hidden = Boolean(text && !row.dataset.name.includes(text)) || (status === "low" && row.dataset.low !== "true") || (status === "expiry" && row.dataset.expiring !== "true") || (status === "available" && (row.dataset.low === "true" || row.dataset.expiring === "true")); }); };
+  $("[data-stock-filter]")?.addEventListener("input", applyStockFilters); $("[data-stock-status]")?.addEventListener("change", applyStockFilters); $("[data-stock-order]")?.addEventListener("change", (event) => { const body = $("[data-stock-report]"); if (!body) return; [...$$('[data-stock-row]', body)].sort((a,b) => String(a.dataset[event.target.value] || "").localeCompare(String(b.dataset[event.target.value] || ""), "pt-BR", { numeric: true })).forEach((row) => body.append(row)); });
+  $$('[data-kitchen-made]').forEach((button) => button.addEventListener("click", async () => {
+    const item = state.kitchenMenu.find((menuItem) => idsEqual(menuItem.id, button.dataset.id)); if (!item) return;
+    const ingredients = String(item.ingredients || "").split(/[;,]/).map((part) => part.trim()).filter(Boolean);
+    for (const entry of ingredients) { const [name, amount] = entry.split(":").map((value) => value.trim()); const stock = state.kitchenStock.find((s) => normalizeLabel(s.name) === normalizeLabel(name)); if (stock && Number(amount)) await upsertRecord("kitchen_stock", { ...stock, quantity: Math.max(0, Number(stock.quantity) - Number(amount)) }, "id", "", { skipPortalRender: true }); }
+    await upsertRecord("kitchen_menu", { ...item, status: "Preparado", prepared_at: new Date().toISOString(), prepared_by: employee.id }, "id", "Preparo confirmado e estoque atualizado.", { skipPortalRender: true }); renderKitchenPanel(session, employee);
+  }));
+  $$('[data-kitchen-no-class]').forEach((button) => button.addEventListener("click", async () => { const item = state.kitchenMenu.find((entry) => idsEqual(entry.id, button.dataset.id)); if (item) { await upsertRecord("kitchen_menu", { ...item, status: "Não houve aula" }, "id", "Dia marcado sem aula.", { skipPortalRender: true }); renderKitchenPanel(session, employee); } }));
+  $$('[data-kitchen-change]').forEach((button) => button.addEventListener("click", async () => { const item = state.kitchenMenu.find((entry) => idsEqual(entry.id, button.dataset.id)); const meal = window.prompt("Qual cardápio foi preparado?"); if (!item || !meal?.trim()) return; const used = window.prompt("Ingredientes usados para baixa (ex.: Arroz: 2; Leite: 1)") || ""; for (const entry of used.split(/[;,]/).map((value) => value.trim()).filter(Boolean)) { const [name, amount] = entry.split(":").map((value) => value.trim()); const stock = state.kitchenStock.find((s) => normalizeLabel(s.name) === normalizeLabel(name)); if (stock && Number(amount)) await upsertRecord("kitchen_stock", { ...stock, quantity: Math.max(0, Number(stock.quantity) - Number(amount)) }, "id", "", { skipPortalRender: true }); } await upsertRecord("kitchen_menu", { ...item, status: "Cardápio alterado", actual_meal: meal.trim() }, "id", "Alteração registrada e estoque atualizado.", { skipPortalRender: true }); renderKitchenPanel(session, employee); }));
+  $("[data-kitchen-stock-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const name = String(form.get("name")).trim(); const existing = state.kitchenStock.find((item) => normalizeLabel(item.name) === normalizeLabel(name)); const saved = await upsertRecord("kitchen_stock", { ...(existing ? { id: existing.id } : {}), name, quantity: form.get("quantity"), unit: form.get("unit"), minimum_quantity: form.get("minimum_quantity"), expiry_date: form.get("expiry_date") || null }, "id", "Estoque salvo.", { skipPortalRender: true }); if (saved) renderKitchenPanel(session, employee); });
+  $("[data-restock-form]").addEventListener("submit", async (event) => { event.preventDefault(); const items = new FormData(event.target).get("items"); await upsertRecord("private_notifications", { title: "Solicitação de reposição — Cozinha", message: String(items), recipient_role: "all_admins" }, "id", "Solicitação enviada.", { skipPortalRender: true }); event.target.reset(); });
+}
+
 async function syncAdminData(message, { skipPortalRender = false } = {}) {
   if (currentPageName() === "login" && !skipPortalRender) {
     renderLoginPortal();
@@ -1912,6 +2110,9 @@ function tabLabel(tab) {
     catalog: "Catálogo",
     students: "Alunos",
     teachers: "Professores",
+    staff: "Funcionários",
+    notifications: "Avisos",
+    kitchen: "Cozinha",
     grades: "Notas",
     content: "Conteúdo",
     news: "Notícias",
@@ -1932,9 +2133,10 @@ function renderAdmin() {
   root.innerHTML = `
     <div class="admin-layout">
       <aside class="admin-tabs" aria-label="Menu administrativo">
-        ${["dashboard", "school", "catalog", "students", "teachers", "grades", "content"]
+        ${["dashboard", "school", "catalog", "students", "teachers", "staff", "kitchen", "notifications", "grades", "content"]
           .map((tab) => `<button data-admin-tab="${tab}" class="${currentAdminTab === tab ? "active" : ""}">${tabLabel(tab)}</button>`)
           .join("")}
+        ${notificationBell(session)}
         <button data-logout>Sair</button>
       </aside>
       <section class="panel" data-admin-content></section>
@@ -1968,6 +2170,7 @@ function renderAdminContent() {
         ${miniStat("Turmas", state.classes.length)}
         ${miniStat("Alunos", state.students.length)}
         ${miniStat("Professores", state.teachers.length)}
+        ${miniStat("Funcionários", state.staff.length)}
         ${miniStat("Notas", state.grades.length)}
         ${miniStat("Eventos", state.events.length)}
         ${miniStat("Atividades", state.activities.length)}
@@ -1996,6 +2199,18 @@ function renderAdminContent() {
     renderTeachersAdmin(content);
     return;
   }
+
+  if (currentAdminTab === "staff") {
+    renderStaffAdmin(content);
+    return;
+  }
+
+  if (currentAdminTab === "notifications") {
+    renderNotificationsAdmin(content);
+    return;
+  }
+
+  if (currentAdminTab === "kitchen") { renderKitchenAdmin(content); return; }
 
   if (currentAdminTab === "grades") {
     renderGradesAdmin(content);
@@ -2051,6 +2266,14 @@ function applySavedRecord(table, record) {
     subjects: "subjects",
     students: "students",
     teachers: "teachers",
+    staff: "staff",
+    private_notifications: "notifications",
+    sector_records: "sectorRecords",
+    kitchen_menu: "kitchenMenu",
+    kitchen_stock: "kitchenStock",
+    dietary_restrictions: "dietaryRestrictions",
+    support_requests: "supportRequests",
+    student_documents: "studentDocuments",
     grades: "grades",
     news: "news",
     events: "events",
@@ -2165,7 +2388,7 @@ async function deleteRecord(table, column, value, successMessage = "Registro rem
   try {
     const { error } = await supabase.from(table).delete().eq(column, value);
     if (error) throw error;
-    const collectionName = ({ classes: "classes", subjects: "subjects", students: "students", teachers: "teachers", grades: "grades", news: "news", events: "events", activities: "activities", achievements: "achievements" })[table];
+    const collectionName = ({ classes: "classes", subjects: "subjects", students: "students", teachers: "teachers", staff: "staff", private_notifications: "notifications", sector_records: "sectorRecords", kitchen_menu: "kitchenMenu", kitchen_stock: "kitchenStock", dietary_restrictions: "dietaryRestrictions", support_requests: "supportRequests", student_documents: "studentDocuments", grades: "grades", news: "news", events: "events", activities: "activities", achievements: "achievements" })[table];
     if (collectionName) state[collectionName] = state[collectionName].filter((item) => !idsEqual(item[column], value));
     clearCache(table);
     await syncAdminData(successMessage);
@@ -2789,6 +3012,58 @@ function renderStudentsAdmin(content) {
   }
 }
 
+function renderStaffAdmin(content) {
+  content.innerHTML = `
+    <div class="portal-heading"><div><h2>Funcionários</h2><p class="muted">Crie e gerencie os acessos internos da escola.</p></div></div>
+    <div class="grade-grid">
+      <form class="panel contact-form" data-staff-form><h3>Criar acesso de funcionário</h3><label>Nome<input class="input" name="name" required></label><label>Setor<select class="input" name="sector" required>${buildOptions(Object.entries(sectorLabels).map(([value, label]) => ({ value, label })))}</select></label><label>Usuário<input class="input" name="user" required></label><label>Senha inicial<input class="input" name="password" type="text" value="1234" required></label><button class="button primary">Criar login</button></form>
+      <form class="panel contact-form" data-notification-form><h3>Enviar aviso</h3><label>Tipo de destinatário<select class="input" name="recipient" required><option value="all_staff">Funcionários</option><option value="all_students">Alunos</option><option value="all_teachers">Professores</option><option value="all_school">Toda a escola</option>${state.staff.map((employee) => `<option value="${escapeHtml(employee.id)}">Funcionário: ${escapeHtml(employee.name)}</option>`).join("")}</select></label><label>Título<input class="input" name="title" required></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar aviso</button></form>
+    </div>
+    <section class="panel"><h3>Acessos criados</h3><div class="list-view">${state.staff.map((employee) => `<article class="list-item admin-record"><div><strong>${escapeHtml(employee.name)}</strong><p class="muted">${escapeHtml(sectorLabels[employee.sector] || employee.sector)} · usuário: @${escapeHtml(employee.user)}</p></div><button class="button ghost" type="button" data-staff-delete data-id="${escapeHtml(employee.id)}">Excluir</button></article>`).join("") || emptyState("Nenhum funcionário cadastrado.")}</div></section>`;
+  $("[data-notification-form]")?.remove();
+  $("[data-staff-form]").addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target); const user = normalizeUser(form.get("user"));
+    if (!user || getExistingUsernames().has(user) || state.staff.some((item) => normalizeUser(item.user) === user)) return toast("Escolha um usuário único.");
+    await upsertRecord("staff", { name: String(form.get("name")).trim(), sector: form.get("sector"), user, password: normalizePassword(form.get("password")) }, "id", "Login de funcionário criado.");
+  });
+  $("[data-notification-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target); const recipient = String(form.get("recipient"));
+    const employee = state.staff.find((item) => idsEqual(item.id, recipient));
+    await upsertRecord("private_notifications", { title: String(form.get("title")).trim(), message: String(form.get("message")).trim(), recipient_id: employee?.id || null, recipient_role: recipient === "all_staff" ? "all_staff" : null, recipient_sector: employee?.sector || null }, "id", "Aviso enviado ao painel selecionado.");
+  });
+  $$('[data-staff-delete]').forEach((button) => button.addEventListener("click", () => deleteRecord("staff", "id", button.dataset.id, "Acesso removido.")));
+}
+
+function renderNotificationsAdmin(content) {
+  const recipients = [
+    { value: "all_students", label: "Alunos" },
+    { value: "all_teachers", label: "Professores" },
+    { value: "sector:secretaria", label: "Secretaria Escolar" },
+    { value: "sector:cozinha", label: "Merendeiras / Cozinha" },
+    { value: "sector:servicos_gerais", label: "Serviços Gerais e Manutenção" },
+    { value: "all_staff", label: "Outros funcionários / todos" },
+    { value: "all_school", label: "Toda a escola" }
+  ];
+  content.innerHTML = `<div class="portal-heading"><div><h2>Painel de avisos</h2><p class="muted">Os avisos só são vistos quando a pessoa clica no sino do próprio painel.</p></div></div><form class="panel contact-form" data-notification-center-form><label>Enviar para<select class="input" name="recipient" required>${buildOptions(recipients)}</select></label><label>Título<input class="input" name="title" required></label><label>Mensagem<textarea class="input" name="message" rows="5" required></textarea></label><button class="button primary">Enviar notificação</button></form><section class="panel"><h3>Últimos avisos</h3><div class="list-view">${state.notifications.slice().sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.title)}</strong><p class="muted">${escapeHtml(item.message)}</p></div></article>`).join("") || emptyState("Nenhum aviso enviado.")}</div></section>`;
+  $("[data-notification-center-form]").addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target); const recipient = String(form.get("recipient"));
+    const sector = recipient.startsWith("sector:") ? recipient.slice(7) : null;
+    const role = sector ? null : recipient;
+    await upsertRecord("private_notifications", { title: String(form.get("title")).trim(), message: String(form.get("message")).trim(), recipient_role: role, recipient_sector: sector }, "id", "Notificação enviada.");
+  });
+}
+
+function renderKitchenAdmin(content) {
+  content.innerHTML = `<div class="portal-heading"><div><h2>Gestão da cozinha</h2><p class="muted">Publique o cardápio, estoque e restrições alimentares.</p></div></div><div class="grade-grid">
+  <form class="panel contact-form" data-menu-form><h3>Cardápio nutricional</h3><label>Data<input class="input" name="menu_date" type="date" required></label><label>Refeição / cardápio<input class="input" name="meal" required></label><label>Ingredientes para baixa<textarea class="input" name="ingredients" rows="3" placeholder="Arroz: 2; Feijão: 1" required></textarea></label><small class="muted">Use nome: quantidade, separados por ponto e vírgula. Os nomes devem coincidir com o estoque.</small><button class="button primary">Publicar cardápio</button></form>
+  <form class="panel contact-form" data-stock-form><h3>Adicionar ao estoque</h3><label>Item<input class="input" name="name" required></label><label>Quantidade<input class="input" name="quantity" type="number" step="0.01" required></label><label>Unidade<input class="input" name="unit" placeholder="kg, L, unidades"></label><label>Estoque mínimo<input class="input" name="minimum_quantity" type="number" step="0.01" required></label><label>Validade<input class="input" name="expiry_date" type="date"></label><button class="button primary">Salvar item</button></form>
+  <form class="panel contact-form" data-restriction-form><h3>Restrição alimentar</h3><label>Aluno e turma<select class="input" name="student_id" required><option value="">Selecione o aluno</option>${state.students.map((student) => `<option value="${escapeHtml(student.id)}">${escapeHtml(student.name)} — ${escapeHtml(getClassLabel(student.className))}</option>`).join("")}</select></label><label>Restrição / orientação<textarea class="input" name="restriction" rows="3" required></textarea></label><button class="button primary">Adicionar restrição</button></form></div>`;
+  const save = (selector, table, fields, message) => $(selector).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const payload = Object.fromEntries(fields.map((field) => [field, String(form.get(field) || "").trim()])); const saved = await upsertRecord(table, payload, "id", message); if (saved && table === "kitchen_stock" && Number(saved.quantity) <= Number(saved.minimum_quantity)) await upsertRecord("private_notifications", { title: "Estoque mínimo", message: `${saved.name} atingiu o estoque mínimo.`, recipient_sector: "cozinha" }, "id", "", { skipPortalRender: true }); if (saved) event.target.reset(); });
+  save("[data-menu-form]", "kitchen_menu", ["menu_date", "meal", "ingredients"], "Cardápio publicado.");
+  save("[data-stock-form]", "kitchen_stock", ["name", "quantity", "unit", "minimum_quantity", "expiry_date"], "Estoque atualizado.");
+  $("[data-restriction-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const student = state.students.find((item) => idsEqual(item.id, form.get("student_id"))); if (!student) return toast("Selecione um aluno."); const saved = await upsertRecord("dietary_restrictions", { student_id: student.id, student_name: student.name, class_name: getClassLabel(student.className), restriction: String(form.get("restriction")).trim() }, "id", "Restrição cadastrada."); if (saved) event.target.reset(); });
+}
+
 function renderTeachersAdmin(content) {
   const editing = adminEditState.teacherId ? state.teachers.find((item) => idsEqual(item.id, adminEditState.teacherId)) : null;
   const editingPairs = editing ? getTeacherSubjectClassPairs(editing) : [];
@@ -3224,6 +3499,13 @@ function renderContentEditor(root) {
     const table = type;
     const saved = await upsertRecord(table, payload, "id", id ? `${titleLabel} atualizado.` : `${titleLabel} salvo.`, { skipPortalRender: true });
     if (saved) {
+      if (type === "events" && !id) {
+        await upsertRecord("private_notifications", {
+          title: `Evento: ${payload.title}`,
+          message: `${payload.date}${payload.time ? ` às ${payload.time}` : ""}${payload.location ? ` · ${payload.location}` : ""}${payload.description ? ` — ${payload.description}` : ""}`,
+          recipient_role: "all_school"
+        }, "id", "Evento salvo e aviso enviado.", { skipPortalRender: true });
+      }
       adminEditState.contentId = null;
       renderAdminContent();
     }
@@ -3539,6 +3821,10 @@ function setupPreferences() {
 }
 
 function setupUi() {
+  document.body.insertAdjacentHTML("beforeend", `<button class="public-secretary-chat" type="button" data-public-chat-toggle aria-label="Falar com a Secretaria">☁ <span>Falar com a Secretaria</span></button><section class="public-secretary-chat-box" data-public-chat-box hidden><div class="portal-heading compact"><div><h3>Atendimento da Secretaria</h3><p class="muted">Declarações, diplomas, dúvidas e sugestões.</p></div><button class="button ghost" type="button" data-public-chat-close>Fechar</button></div><form class="contact-form" data-public-chat-form><label>Nome<input class="input" name="name" required></label><label>Contato<input class="input" name="contact" required placeholder="E-mail ou telefone"></label><label>Assunto<select class="input" name="subject"><option>Declaração</option><option>Diploma ou histórico</option><option>Dúvida</option><option>Feedback</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar para a Secretaria</button></form></section>`);
+  $("[data-public-chat-toggle]").addEventListener("click", () => { const box = $("[data-public-chat-box]"); box.hidden = !box.hidden; });
+  $("[data-public-chat-close]").addEventListener("click", () => { $("[data-public-chat-box]").hidden = true; });
+  $("[data-public-chat-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_name: String(form.get("name")).trim(), requester_role: "public", subject: `${form.get("subject")} — ${form.get("contact")}`, message: String(form.get("message")).trim(), status:"Aberto" }, "id", "Mensagem enviada à Secretaria.", { skipPortalRender:true }); if (saved) { await upsertRecord("private_notifications", { title:"Novo atendimento público", message:`${form.get("name")}: ${form.get("subject")}`, recipient_sector:"secretaria" }, "id", "", { skipPortalRender:true }); event.target.reset(); $("[data-public-chat-box]").hidden = true; } });
   $("[data-menu-toggle]").addEventListener("click", () => {
     $("[data-nav-panel]").classList.toggle("open");
     document.body.classList.toggle("no-scroll");
@@ -3563,10 +3849,11 @@ function setupUi() {
 
 // ==================== INICIALIZAÇÃO ====================
 async function refreshDataInBackground() {
-  if (document.hidden || currentPageName() === "login") return;
+  if (document.hidden) return;
   const updated = await loadDataFromSupabase({ useCache: true, forceNetwork: true });
   if (!updated) return;
-  if (currentPageName() !== "login") renderVisiblePublicPage();
+  if (currentPageName() === "login") renderLoginPortal();
+  else renderVisiblePublicPage();
 }
 
 window.addEventListener("hashchange", route);

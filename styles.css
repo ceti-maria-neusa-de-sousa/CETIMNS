@@ -1072,6 +1072,91 @@ textarea.input {
   box-shadow: var(--shadow);
 }
 
+.notification-bell {
+  position: relative;
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  color: var(--blue);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .notification-bell { color: var(--white); }
+}
+
+.notification-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  border-radius: 999px;
+  background: #d92d20;
+  color: var(--white);
+  font-size: .75rem;
+}
+
+.notification-panel {
+  margin-bottom: 18px;
+  border: 2px solid var(--blue);
+  animation: notification-open .22s ease-out both;
+}
+
+.public-secretary-chat,
+.secretary-chat-button {
+  border: 0;
+  background: var(--blue);
+  color: var(--white);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.public-secretary-chat {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.secretary-chat-button {
+  position: fixed;
+  right: 18px;
+  bottom: 80px;
+  z-index: 71;
+  border-radius: 999px;
+  padding: 10px 13px;
+}
+
+.public-secretary-chat-box {
+  position: fixed;
+  right: 18px;
+  bottom: 78px;
+  z-index: 75;
+  width: min(390px, calc(100vw - 36px));
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: notification-open .22s ease-out both;
+}
+
+@keyframes notification-open {
+  from { opacity: 0; transform: translateY(-10px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .admin-layout {
   display: grid;
   grid-template-columns: 230px 1fr;
