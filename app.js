@@ -3822,11 +3822,11 @@ function setupPreferences() {
 
 function setupUi() {
   document.body.insertAdjacentHTML("beforeend", `<button class="public-secretary-chat" type="button" data-public-chat-toggle aria-label="Falar com a Secretaria">☁ <span>Falar com a Secretaria</span></button><section class="public-secretary-chat-box" data-public-chat-box hidden><div class="portal-heading compact"><div><h3>Atendimento da Secretaria</h3><p class="muted">Declarações, diplomas, dúvidas e sugestões.</p></div><button class="button ghost" type="button" data-public-chat-close>Fechar</button></div><form class="contact-form" data-public-chat-form><label>Nome<input class="input" name="name" required></label><label>Contato<input class="input" name="contact" required placeholder="E-mail ou telefone"></label><label>Assunto<select class="input" name="subject"><option>Declaração</option><option>Diploma ou histórico</option><option>Dúvida</option><option>Feedback</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar para a Secretaria</button></form></section>`);
-  $("[data-public-chat-toggle]").addEventListener("click", () => { const box = $("[data-public-chat-box]"); box.hidden = !box.hidden; });
-  $("[data-public-chat-close]").addEventListener("click", () => { $("[data-public-chat-box]").hidden = true; });
+  $("[data-public-chat-toggle]")?.addEventListener("click", () => { const box = $("[data-public-chat-box]"); if (box) box.hidden = !box.hidden; });
+  $("[data-public-chat-close]")?.addEventListener("click", () => { const box = $("[data-public-chat-box]"); if (box) box.hidden = true; });
   $("[data-public-chat-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_name: String(form.get("name")).trim(), requester_role: "public", subject: `${form.get("subject")} — ${form.get("contact")}`, message: String(form.get("message")).trim(), status:"Aberto" }, "id", "Mensagem enviada à Secretaria.", { skipPortalRender:true }); if (saved) { await upsertRecord("private_notifications", { title:"Novo atendimento público", message:`${form.get("name")}: ${form.get("subject")}`, recipient_sector:"secretaria" }, "id", "", { skipPortalRender:true }); event.target.reset(); $("[data-public-chat-box]").hidden = true; } });
-  $("[data-menu-toggle]").addEventListener("click", () => {
-    $("[data-nav-panel]").classList.toggle("open");
+  $("[data-menu-toggle]")?.addEventListener("click", () => {
+    $("[data-nav-panel]")?.classList.toggle("open");
     document.body.classList.toggle("no-scroll");
   });
 
