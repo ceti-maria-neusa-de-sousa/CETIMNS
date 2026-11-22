@@ -59,6 +59,10 @@ o status de formado e ajusta a exclusão de alunos para remover as notas vincula
 
 Se quiser reexecutar a criacao do admin manualmente no navegador, use `setup-admin.js`.
 
+## Checklists por setor
+
+Execute tambem `supabase-sector-checklists.sql` no SQL Editor do Supabase. Depois, no painel **Diretor**, crie um checklist para cada setor. Ele sera exibido automaticamente nos paineis de Secretaria, Cozinha, Servicos Gerais, Professores ou Alunos, conforme o setor selecionado. O mesmo arquivo cria o ponto eletronico; se voce ja o executou antes desta atualizacao, execute-o novamente.
+
 ## Como a sincronizacao funciona
 
 - O GitHub guarda o codigo do site.

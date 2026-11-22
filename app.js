@@ -23,6 +23,17 @@ let state = {
   teachers: [],
   staff: [],
   notifications: [],
+  notificationDismissals: [],
+  workforceProfiles: [],
+  workSchedules: [],
+  timeEntries: [],
+  workTasks: [],
+  workTaskAssignees: [],
+  sectorChecklists: [],
+  sectorChecklistItems: [],
+  sectorChecklistCompletions: [],
+  sectorChecklistAssignees: [],
+  attendanceTimeEntries: [],
   sectorRecords: [],
   kitchenMenu: [],
   kitchenStock: [],
@@ -67,8 +78,12 @@ let currentTeacherClass = "";
 let currentStudentView = "bulletin";
 let currentStaffView = "overview";
 let currentKitchenView = "operations";
+let editingSectorChecklistId = null;
 let isRefreshingData = false;
 let isSavingRecord = false;
+let requiredDataLoadErrors = 0;
+// Impede que a atualização automática substitua um formulário em edição.
+let hasUnsavedFormChanges = false;
 let adminEditState = {
   classId: null,
   subjectId: null,
@@ -175,9 +190,9 @@ const parseStudentCsvRows = (text, fallbackClassName = "") => {
 
 // ==================== FUNÇÕES DE CÁLCULO ====================
 function calculateTrimesterRecovery(n1, n2, n3) {
-  const n1Num = Number(n1) || 0;
-  const n2Num = Number(n2) || 0;
-  const n3Num = Number(n3) || 0;
+  const n1Num = parseGradeScore(n1) || 0;
+  const n2Num = parseGradeScore(n2) || 0;
+  const n3Num = parseGradeScore(n3) || 0;
   
   if (n1Num === 0 && n2Num === 0 && n3Num === 0) return false;
   
@@ -186,9 +201,9 @@ function calculateTrimesterRecovery(n1, n2, n3) {
 }
 
 function getTrimesterAverage(n1, n2, n3) {
-  const n1Num = Number(n1) || 0;
-  const n2Num = Number(n2) || 0;
-  const n3Num = Number(n3) || 0;
+  const n1Num = parseGradeScore(n1) || 0;
+  const n2Num = parseGradeScore(n2) || 0;
+  const n3Num = parseGradeScore(n3) || 0;
   
   if (n1Num === 0 && n2Num === 0 && n3Num === 0) return "0.0";
   
@@ -196,10 +211,10 @@ function getTrimesterAverage(n1, n2, n3) {
 }
 
 function normalizeTrimester(trimester = {}) {
-  const n1 = Number(trimester.n1) || 0;
-  const n2 = Number(trimester.n2) || 0;
-  const n3 = Number(trimester.n3) || 0;
-  const recoveryScore = Number(trimester.recoveryScore) || 0;
+  const n1 = parseGradeScore(trimester.n1) || 0;
+  const n2 = parseGradeScore(trimester.n2) || 0;
+  const n3 = parseGradeScore(trimester.n3) || 0;
+  const recoveryScore = parseGradeScore(trimester.recoveryScore) || 0;
   const recovery = calculateTrimesterRecovery(n1, n2, n3);
   
   return { n1, n2, n3, recovery, recoveryScore };
@@ -277,19 +292,31 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
   try {
     if (isRefreshingData) return false;
     isRefreshingData = true;
+    requiredDataLoadErrors = 0;
     console.log("Carregando dados do Supabase...");
 
     const loadTable = (table, transform, optional) => {
       const request = () => safeTableSelect(table, transform, optional);
       return useCache ? fetchWithCache(table, "all", request, { force: forceNetwork }) : request();
     };
-    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
+    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workforceProfilesData, workSchedulesData, timeEntriesData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, attendanceTimeEntriesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
       loadTable("classes"),
       loadTable("subjects"),
       loadTable("students"),
       loadTable("teachers"),
       loadTable("staff", undefined, true),
       loadTable("private_notifications", undefined, true),
+      loadTable("notification_dismissals", undefined, true),
+      loadTable("workforce_profiles", undefined, true),
+      loadTable("work_schedules", undefined, true),
+      loadTable("time_entries", undefined, true),
+      loadTable("work_tasks", undefined, true),
+      loadTable("work_task_assignees", undefined, true),
+      loadTable("sector_checklists", undefined, true),
+      loadTable("sector_checklist_items", undefined, true),
+      loadTable("sector_checklist_completions", undefined, true),
+      loadTable("sector_checklist_assignees", undefined, true),
+      loadTable("attendance_time_entries", undefined, true),
       loadTable("sector_records", undefined, true),
       loadTable("kitchen_menu", undefined, true),
       loadTable("kitchen_stock", undefined, true),
@@ -305,6 +332,10 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
       loadTable("school_config", (query) => query.order("created_at", { ascending: false }).limit(1))
     ]);
 
+    // Não substitui o estado atual por listas vazias se a rede ou o banco
+    // falhar. Isso evitava que um usuário logado fosse removido do painel.
+    if (requiredDataLoadErrors) throw new Error("Não foi possível atualizar os dados essenciais do portal.");
+
     state.classes = (classesData || [])
       .map((item) => ({ ...item, name: item.name || "" }))
       .filter((item) => item.name);
@@ -315,6 +346,17 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
     state.teachers = sortPeopleByName((teachersData || []).map(normalizeTeacherData));
     state.staff = sortPeopleByName(staffData || []);
     state.notifications = notificationsData || [];
+    state.notificationDismissals = notificationDismissalsData || [];
+    state.workforceProfiles = workforceProfilesData || [];
+    state.workSchedules = workSchedulesData || [];
+    state.timeEntries = timeEntriesData || [];
+    state.workTasks = workTasksData || [];
+    state.workTaskAssignees = workTaskAssigneesData || [];
+    state.sectorChecklists = sectorChecklistsData || [];
+    state.sectorChecklistItems = sectorChecklistItemsData || [];
+    state.sectorChecklistCompletions = sectorChecklistCompletionsData || [];
+    state.sectorChecklistAssignees = sectorChecklistAssigneesData || [];
+    state.attendanceTimeEntries = attendanceTimeEntriesData || [];
     state.sectorRecords = sectorRecordsData || [];
     state.kitchenMenu = kitchenMenuData || [];
     state.kitchenStock = kitchenStockData || [];
@@ -366,7 +408,10 @@ async function safeTableSelect(table, transform, optional = false) {
     if (result.error) throw result.error;
     return result.data || [];
   } catch (error) {
-    if (!optional) console.error(`Erro ao buscar ${table}:`, error);
+    if (!optional) {
+      requiredDataLoadErrors += 1;
+      console.error(`Erro ao buscar ${table}:`, error);
+    }
     return [];
   }
 }
@@ -501,12 +546,22 @@ async function saveGradesToSupabase(grades) {
 function areTrimestersEqual(left, right) {
   const a = normalizeTrimester(left);
   const b = normalizeTrimester(right);
-  return ["n1", "n2", "n3", "recoveryScore"].every((field) => Number(a[field] || 0) === Number(b[field] || 0)) && Boolean(a.recovery) === Boolean(b.recovery);
+  return ["n1", "n2", "n3", "recoveryScore"].every((field) => parseGradeScore(a[field]) === parseGradeScore(b[field])) && Boolean(a.recovery) === Boolean(b.recovery);
 }
 
 function isValidGradeScore(value) {
-  const score = Number(value);
+  const score = parseGradeScore(value);
   return Number.isFinite(score) && score >= 0 && score <= 10;
+}
+
+// Professores costumam digitar notas no formato brasileiro (ex.: 7,5).
+// Normalizamos antes de validar/calcular para que vírgula e ponto funcionem.
+function parseGradeScore(value) {
+  if (typeof value === "number") return value;
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  const score = normalized === "" ? 0 : Number(normalized);
+  // Nunca persiste pontuação fora da escala oficial 0,0–10,0.
+  return Number.isFinite(score) && score >= 0 && score <= 10 ? score : 0;
 }
 
 function formatDate(date) {
@@ -1022,7 +1077,8 @@ function setupFilters() {
 
 // ==================== AUTENTICAÇÃO ====================
 function getSession() {
-  const stored = sessionStorage.getItem(SESSION_KEY);
+  // Mantém o acesso em recargas e depois do fechamento acidental da aba.
+  const stored = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
   if (!stored) return null;
   try {
     return JSON.parse(stored);
@@ -1032,10 +1088,12 @@ function getSession() {
 }
 
 function setSession(session) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  sessionStorage.removeItem(SESSION_KEY);
 }
 
 function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
   sessionStorage.removeItem(SESSION_KEY);
 }
 
@@ -1110,10 +1168,6 @@ function renderLoginPortal() {
       return;
     }
     if (session?.role === "student") {
-      if (session.mustChangePassword) {
-        renderStudentPasswordChange(session);
-        return;
-      }
       renderStudentPanel(session);
       return;
     }
@@ -1192,6 +1246,7 @@ function renderTeacherPanel(session) {
         <button class="button ghost" data-teacher-report>Relatório da disciplina</button>
         <a class="button ghost" href="https://portal.seduc.pi.gov.br/" target="_blank" rel="noopener">Abrir iSEDUC</a>
         ${notificationBell(session)}
+        ${passwordChangeButton(session)}
         ${secretaryChatButton(session)}
         <button class="button ghost" data-logout>Sair</button>
       </div>
@@ -1259,7 +1314,10 @@ function renderTeacherPanel(session) {
     </section>
   `;
 
+  root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
+  bindSectorChecklists(session);
   bindSecretaryChat(session);
+  bindPasswordChange(session);
   $("[data-logout]").addEventListener("click", () => {
     clearSession();
     renderLoginPortal();
@@ -1639,6 +1697,8 @@ function renderStudentPanel(session) {
     </div>
   `;
 
+  root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
+  bindSectorChecklists(session);
   $("[data-logout]").addEventListener("click", () => {
     clearSession();
     renderLoginPortal();
@@ -1969,16 +2029,96 @@ function generatePdfReport(title, content, options = {}) {
 }
 
 // ==================== ADMIN PAINEL ====================
-const sectorLabels = { secretaria: "Secretaria Escolar", cozinha: "Cozinha / Merenda", servicos_gerais: "Serviços Gerais e Manutenção" };
+const sectorLabels = { secretaria: "Secretaria Escolar", cozinha: "Cozinha / Merenda", servicos_gerais: "Serviços Gerais e Manutenção", professores: "Professores", alunos: "Alunos" };
 const sectorModules = {
   secretaria: ["Documentos", "Matrículas e rematrículas", "Frequência e turmas", "Arquivo do aluno"],
   cozinha: ["Cardápio nutricional", "Estoque da despensa", "Validade e estoque mínimo", "Solicitação de insumos", "Restrições alimentares"],
   servicos_gerais: ["Chamados de manutenção", "Cronograma de limpeza", "Produtos e EPIs", "Checklist diário"]
 };
 
+function checklistSectorFor(session) {
+  if (session.role === "teacher") return "professores";
+  if (session.role === "student") return "alunos";
+  return session.sector || "";
+}
+
+function renderTimeClock(session) {
+  // Professores não usam ponto: seus horários variam conforme as aulas.
+  if (session.role !== "staff") return "";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const entries = state.attendanceTimeEntries.filter((item) => idsEqual(item.user_id, session.id) && item.user_role === session.role && String(item.recorded_at || "").slice(0, 10) === today).sort((a, b) => String(a.recorded_at).localeCompare(String(b.recorded_at)));
+  const flow = [{ type: "entry", label: "Registrar entrada", icon: "↗" }, { type: "exit", label: "Registrar saída", icon: "↘" }];
+  const next = entries.some((entry) => entry.event_type === "entry") && !entries.some((entry) => entry.event_type === "exit") ? flow[1] : flow[0];
+  const time = (entry) => new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(new Date(entry.recorded_at));
+  return `<section class="panel time-clock" data-time-clock><div class="time-clock-top"><div><span class="time-clock-eyebrow">PONTO ELETRÔNICO</span><h3>Minha jornada de hoje</h3><p class="muted">Entrada: 7:30–8:30 · Saída: 14:25–15:00.</p></div><div class="live-clock" data-live-clock>--:--</div></div><div class="time-line">${flow.map((step, index) => { const entry = entries[index]; return `<div class="time-step ${entry ? "done" : index === entries.length ? "current" : ""}"><span>${step.icon}</span><div><strong>${step.label.replace("Registrar ", "")}</strong><small>${entry ? time(entry) : index === entries.length ? "Próximo registro" : "Aguardando"}</small></div></div>`; }).join("")}</div><button class="button primary time-clock-action" type="button" data-time-clock-action="${next.type}"><span>${next.icon}</span>${next.label}</button></section>`;
+}
+
+function bindTimeClock(session) {
+  const clock = $("[data-live-clock]");
+  if (clock) {
+    const update = () => { clock.textContent = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/Sao_Paulo" }).format(new Date()); };
+    update(); setInterval(update, 1000);
+  }
+  $("[data-time-clock-action]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget; button.disabled = true;
+    const now = new Date(); const minutes = now.getHours() * 60 + now.getMinutes();
+    const allowed = button.dataset.timeClockAction === "entry" ? minutes >= 450 && minutes <= 510 : minutes >= 865 && minutes <= 900;
+    if (!allowed) { button.disabled = false; return toast(button.dataset.timeClockAction === "entry" ? "A entrada é registrada somente entre 7:30 e 8:30." : "A saída é registrada somente entre 14:25 e 15:00."); }
+    const { data, error } = await supabase.from("attendance_time_entries").insert({ user_id: String(session.id), user_role: session.role, event_type: button.dataset.timeClockAction }).select().single();
+    if (error) { console.error("Erro ao registrar ponto:", error); button.disabled = false; return toast("Não foi possível registrar o ponto. Execute novamente a migração do checklist no Supabase."); }
+    state.attendanceTimeEntries.push(data); clearCache("attendance_time_entries"); toast("Ponto registrado com sucesso."); renderLoginPortal();
+  });
+}
+
+function renderSectorChecklists(session) {
+  const sector = checklistSectorFor(session);
+  const weekday = new Date().getDay();
+  const checklists = state.sectorChecklists.filter((item) => {
+    const days = Array.isArray(item.weekdays) ? item.weekdays : [0, 1, 2, 3, 4, 5, 6];
+    const assigned = state.sectorChecklistAssignees.filter((assignment) => idsEqual(assignment.checklist_id, item.id));
+    return item.active !== false && item.sector === sector && days.includes(weekday) && (!assigned.length || assigned.some((assignment) => idsEqual(assignment.user_id, session.id) && assignment.user_role === session.role));
+  });
+  const timeClock = renderTimeClock(session);
+  if (!checklists.length) return timeClock;
+  return `${timeClock}<section class="panel sector-checklist"><div class="portal-heading compact"><div><span class="checklist-eyebrow">ROTINA INTELIGENTE</span><h3>Checklist do setor</h3><p class="muted">Marque os itens realizados. O andamento fica visível para a direção.</p></div></div>${checklists.map((checklist) => {
+    const items = state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id)).sort((a, b) => Number(a.position) - Number(b.position));
+    const completedOn = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+    const completed = new Set(state.sectorChecklistCompletions.filter((item) => idsEqual(item.checklist_id, checklist.id) && idsEqual(item.user_id, session.id) && item.user_role === session.role && item.completed && item.completed_on === completedOn).map((item) => String(item.item_id)));
+    if (items.length && completed.size === items.length) return "";
+    const percent = items.length ? Math.round((completed.size / items.length) * 100) : 0;
+    return `<article class="checklist-card"><div class="checklist-card-head"><div><span class="checklist-icon">✓</span><strong>${escapeHtml(checklist.title)}</strong><p class="muted">${escapeHtml(checklist.location || sectorLabels[checklist.sector] || checklist.sector)}${checklist.description ? ` · ${escapeHtml(checklist.description)}` : ""}</p></div><div class="checklist-progress"><strong>${percent}%</strong><span>${completed.size} de ${items.length} concluídos</span></div></div><div class="checklist-meter" aria-label="${percent}% concluído"><i style="width:${percent}%"></i></div><div class="checklist-items">${items.map((item, index) => `<label class="checklist-item ${completed.has(String(item.id)) ? "is-done" : ""}"><input type="checkbox" data-checklist-item="${escapeHtml(item.id)}" data-checklist-id="${escapeHtml(checklist.id)}" ${completed.has(String(item.id)) ? "checked" : ""}><span class="checklist-check">✓</span><span class="checklist-item-number">${String(index + 1).padStart(2, "0")}</span><span>${escapeHtml(item.label)}</span><em>${completed.has(String(item.id)) ? "Concluído" : "Toque para concluir"}</em></label>`).join("") || `<p class="muted">Este checklist ainda não possui itens.</p>`}</div></article>`;
+  }).join("")}</section>`;
+}
+
+function bindSectorChecklists(session) {
+  bindTimeClock(session);
+  $$('[data-checklist-item]').forEach((input) => input.addEventListener("change", async () => {
+    const completedOn = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+    const existing = state.sectorChecklistCompletions.find((item) => idsEqual(item.item_id, input.dataset.checklistItem) && idsEqual(item.checklist_id, input.dataset.checklistId) && idsEqual(item.user_id, session.id) && item.user_role === session.role && item.completed_on === completedOn);
+    const payload = { checklist_id: input.dataset.checklistId, item_id: input.dataset.checklistItem, user_id: String(session.id), user_role: session.role, completed: input.checked, completed_at: input.checked ? new Date().toISOString() : null, completed_on: completedOn };
+    const { data, error } = existing ? await supabase.from("sector_checklist_completions").update(payload).eq("id", existing.id).select().single() : await supabase.from("sector_checklist_completions").insert(payload).select().single();
+    if (error) { console.error("Erro ao salvar checklist:", error); input.checked = !input.checked; return toast("Não foi possível atualizar o checklist."); }
+    if (existing) Object.assign(existing, data); else state.sectorChecklistCompletions.push(data);
+    const total = state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, input.dataset.checklistId)).length;
+    const done = state.sectorChecklistCompletions.filter((item) => idsEqual(item.checklist_id, input.dataset.checklistId) && idsEqual(item.user_id, session.id) && item.user_role === session.role && item.completed && item.completed_on === completedOn).length;
+    clearCache("sector_checklist_completions");
+    if (total && done === total) toast("Checklist concluído com sucesso. Até amanhã!");
+    renderLoginPortal();
+  }));
+}
+
 function privateNotificationsFor(session) {
   const audience = session.role === "student" ? "all_students" : session.role === "teacher" ? "all_teachers" : session.role === "staff" ? "all_staff" : "all_admins";
-  return state.notifications.filter((item) => item.recipient_id === session.id || item.recipient_student_id === session.id || item.recipient_role === audience || item.recipient_role === "all_school" || (session.role === "staff" && item.recipient_sector === session.sector));
+  const localDismissals = new Set(JSON.parse(localStorage.getItem(`ceti-dismissed-${session.role}-${session.id}`) || "[]"));
+  const dismissedIds = new Set(
+    state.notificationDismissals
+      .filter((item) => idsEqual(item.user_id, session.id) && item.user_role === session.role)
+      .map((item) => String(item.notification_id))
+  );
+  return state.notifications.filter((item) =>
+    !dismissedIds.has(String(item.id)) && !localDismissals.has(String(item.id)) &&
+    (item.recipient_id === session.id || item.recipient_student_id === session.id || item.recipient_role === audience || item.recipient_role === "all_school" || (session.role === "staff" && item.recipient_sector === session.sector))
+  );
 }
 
 function notificationBell(session) {
@@ -1993,8 +2133,53 @@ function openNotificationPanel() {
   const root = $("[data-login-root]");
   const old = $("[data-notification-panel]", root);
   if (old) return old.remove();
-  root.insertAdjacentHTML("afterbegin", `<section class="panel notification-panel" data-notification-panel><div class="portal-heading compact"><div><h2>🔔 Avisos</h2><p class="muted">Mensagens direcionadas ao seu painel.</p></div><button class="button ghost" type="button" data-notification-close>Fechar</button></div><div class="list-view">${notes.map((note) => `<article class="list-item"><div><strong>${escapeHtml(note.title)}</strong><p class="muted">${escapeHtml(note.message)}</p></div></article>`).join("") || emptyState("Você não possui avisos no momento.")}</div></section>`);
+  root.insertAdjacentHTML("afterbegin", `<section class="panel notification-panel" data-notification-panel><div class="portal-heading compact"><div><h2>🔔 Avisos</h2><p class="muted">Mensagens direcionadas ao seu painel.</p></div><div class="row-actions">${notes.length ? '<button class="button ghost" type="button" data-notification-clear>Limpar meus avisos</button>' : ""}<button class="button ghost" type="button" data-notification-close>Fechar</button></div></div><div class="list-view">${notes.map((note) => `<article class="list-item"><div><strong>${escapeHtml(note.title)}</strong><p class="muted">${escapeHtml(note.message)}</p></div></article>`).join("") || emptyState("Você não possui avisos no momento.")}</div></section>`);
   $("[data-notification-close]", root).addEventListener("click", () => $("[data-notification-panel]", root)?.remove());
+  $("[data-notification-clear]", root)?.addEventListener("click", () => clearMyNotifications(session, notes));
+}
+
+async function clearMyNotifications(session, notes) {
+  const dismissals = notes.map((note) => ({ notification_id: note.id, user_id: String(session.id), user_role: session.role }));
+  const { data, error } = await supabase.from("notification_dismissals").upsert(dismissals, { onConflict: "notification_id,user_id,user_role" }).select();
+  if (error) {
+    console.error("Erro ao limpar avisos:", error);
+    localStorage.setItem(`ceti-dismissed-${session.role}-${session.id}`, JSON.stringify(notes.map((note) => String(note.id))));
+    $("[data-notification-panel]")?.remove();
+    toast("Avisos ocultados neste dispositivo. Execute a migração para sincronizar em todos os acessos.");
+    renderLoginPortal();
+    return;
+  }
+  state.notificationDismissals = [...state.notificationDismissals, ...(data || [])];
+  clearCache("notification_dismissals");
+  $("[data-notification-panel]")?.remove();
+  toast("Seus avisos foram limpos.");
+  renderLoginPortal();
+}
+
+function passwordChangeButton(session) {
+  return session?.role !== "student" ? '<button class="button ghost" type="button" data-password-change>Criar/alterar senha</button>' : "";
+}
+
+function bindPasswordChange(session) {
+  $("[data-password-change]")?.addEventListener("click", () => renderWorkforcePasswordChange(session));
+}
+
+function renderWorkforcePasswordChange(session) {
+  const table = session.role === "admin" ? "admins" : session.role === "teacher" ? "teachers" : "staff";
+  const root = $("[data-login-root]");
+  root.innerHTML = `<form class="panel contact-form login-card" data-workforce-password-form><h2>Crie sua senha</h2><p class="muted">Escolha uma senha pessoal para acessar seu portal.</p><label>Nova senha<input class="input" name="password" type="password" minlength="4" required autocomplete="new-password"></label><label>Confirmar nova senha<input class="input" name="confirmation" type="password" minlength="4" required autocomplete="new-password"></label><button class="button primary" type="submit">Salvar senha</button><button class="button ghost" type="button" data-password-cancel>Cancelar</button></form>`;
+  $("[data-workforce-password-form]").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const password = normalizePassword(form.get("password"));
+    if (password !== normalizePassword(form.get("confirmation"))) return toast("As senhas não conferem.");
+    const { error } = await supabase.from(table).update({ password }).eq("id", session.id);
+    if (error) return toast("Não foi possível salvar a senha. Tente novamente.");
+    clearCache(table);
+    toast("Senha salva com sucesso.");
+    renderLoginPortal();
+  });
+  $("[data-password-cancel]").addEventListener("click", () => renderLoginPortal());
 }
 
 document.addEventListener("click", (event) => {
@@ -2011,7 +2196,7 @@ function bindSecretaryChat(session) {
     if ($("[data-secretary-chat-box]", root)) return;
     root.insertAdjacentHTML("beforeend", `<section class="panel secretary-chat-box" data-secretary-chat-box><div class="portal-heading compact"><h3>Falar com a Secretaria</h3><button class="button ghost" data-chat-close>Fechar</button></div><form class="contact-form" data-secretary-chat-form><label>Assunto<select class="input" name="subject"><option>Dúvida</option><option>Pedido de impressão</option><option>Documento</option><option>Outro atendimento</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar</button></form></section>`);
     $("[data-chat-close]", root).addEventListener("click", () => $("[data-secretary-chat-box]", root)?.remove());
-    $("[data-secretary-chat-form]", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_id: session.id, requester_name: session.name, requester_role: session.role, subject: form.get("subject"), message: form.get("message"), status: "Aberto" }, "id", "Mensagem enviada à Secretaria.", { skipPortalRender: true }); if (saved) { await upsertRecord("private_notifications", { title: "Novo atendimento", message: `${session.name}: ${form.get("subject")}`, recipient_sector: "secretaria" }, "id", "", { skipPortalRender: true }); $("[data-secretary-chat-box]", root)?.remove(); } });
+    $("[data-secretary-chat-form]", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_id: session.id, requester_name: session.name, requester_role: session.role, subject: form.get("subject"), message: form.get("message"), status: "Aberto" }, "id", "Responderemos o mais breve possível pelo e-mail cadastrado.", { skipPortalRender: true }); if (saved) { await upsertRecord("private_notifications", { title: "Novo atendimento", message: `${session.name}: ${form.get("subject")}`, recipient_sector: "secretaria" }, "id", "", { skipPortalRender: true }); $("[data-secretary-chat-box]", root)?.remove(); } });
   });
 }
 
@@ -2033,7 +2218,7 @@ function renderStaffPanel(session) {
   const records = state.sectorRecords.filter((item) => item.sector === employee.sector).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   const modules = sectorModules[employee.sector] || [];
   root.innerHTML = `
-    <div class="portal-heading"><div><h2>${escapeHtml(sectorLabels[employee.sector] || "Funcionário")}: ${escapeHtml(employee.name)}</h2><p class="muted">Painel interno. Os avisos abaixo não são publicados no site.</p></div><div class="row-actions">${notificationBell(session)}<button class="button ghost" data-logout>Sair</button></div></div>
+    <div class="portal-heading"><div><h2>${escapeHtml(sectorLabels[employee.sector] || "Funcionário")}: ${escapeHtml(employee.name)}</h2><p class="muted">Painel interno. Os avisos abaixo não são publicados no site.</p></div><div class="row-actions">${notificationBell(session)}${passwordChangeButton(session)}<button class="button ghost" data-logout>Sair</button></div></div>
     <div class="segmented">${["overview", "records"].map((view) => `<button type="button" class="${currentStaffView === view ? "active" : ""}" data-staff-view="${view}">${view === "overview" ? "Painel" : "Registros"}</button>`).join("")}</div>
     ${currentStaffView === "overview" ? `<div class="staff-grid"><section class="panel"><h3>Avisos recebidos</h3>${notes.map((note) => `<article class="list-item"><div><strong>${escapeHtml(note.title)}</strong><p class="muted">${escapeHtml(note.message)}</p></div></article>`).join("") || emptyState("Nenhum aviso para você.")}</section><section class="panel"><h3>Ferramentas do setor</h3><div class="list-view">${modules.map((module) => `<article class="list-item"><div><strong>${escapeHtml(module)}</strong><p class="muted">Registre e acompanhe as demandas deste item na aba Registros.</p></div></article>`).join("")}</div></section></div>` : `
       <section class="panel"><h3>Novo registro</h3><form class="contact-form" data-sector-record-form><label>Área<select class="input" name="module" required>${buildOptions(modules)}</select></label><label>Título<input class="input" name="title" required></label><label>Detalhes<textarea class="input" name="details" rows="4" required></textarea></label><button class="button primary">Salvar registro</button></form></section>
@@ -2042,9 +2227,10 @@ function renderStaffPanel(session) {
   if (employee.sector === "secretaria" && currentStaffView === "overview") {
     root.insertAdjacentHTML("beforeend", `<section class="panel"><h3>Enviar aviso</h3><form class="contact-form" data-secretary-notification-form><label>Destinatário<select class="input" name="recipient"><option value="all_students">Alunos</option><option value="all_staff">Funcionários</option><option value="all_school">Toda a escola</option></select></label><label>Título<input class="input" name="title" required></label><label>Mensagem<textarea class="input" name="message" rows="3" required></textarea></label><button class="button primary">Enviar aviso</button></form></section>`);
   }
-  $(".staff-grid > section:first-child", root)?.remove();
-  $("[data-secretary-notification-form]", root)?.closest("section")?.remove();
+  root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
+  bindSectorChecklists(session);
   $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); });
+  bindPasswordChange(session);
   $$('[data-staff-view]').forEach((button) => button.addEventListener("click", () => { currentStaffView = button.dataset.staffView; renderStaffPanel(session); }));
   $("[data-sector-record-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault(); const form = new FormData(event.target);
@@ -2059,10 +2245,63 @@ function renderStaffPanel(session) {
 }
 
 function renderSecretaryPanel(session, employee) {
-  const root = $("[data-login-root]"); const requests = state.supportRequests.slice().sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-  root.innerHTML = `<div class="portal-heading"><div><h2>Secretaria Escolar: ${escapeHtml(employee.name)}</h2><p class="muted">Atendimento, documentos e cadastros escolares.</p></div><div class="row-actions">${notificationBell(session)}${requests.some((item) => item.attachment?.data) ? '<button class="button ghost" data-download-print>Baixar último arquivo</button>' : ''}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="active" data-secretary-tab="requests">Atendimentos</button><button data-secretary-tab="people">Escola</button><button data-secretary-tab="documents">Documentos</button></div><div data-secretary-content></div>`;
-  const content = $("[data-secretary-content]"); const show = (tab) => { $$('[data-secretary-tab]').forEach((b) => b.classList.toggle("active", b.dataset.secretaryTab === tab)); if (tab === "people") { const staffRows = [...state.teachers.filter((p) => p.user).map((p) => ({ name:p.name, role:"Professor(a)" })), ...state.staff.filter((p) => p.user).map((p) => ({ name:p.name, role:sectorLabels[p.sector] || p.sector }))].sort((a,b) => a.name.localeCompare(b.name,"pt-BR")); const students = [...state.students].sort((a,b) => `${getClassLabel(a.className)}|${a.name}`.localeCompare(`${getClassLabel(b.className)}|${b.name}`,"pt-BR")); content.innerHTML = `<section class="panel"><h3>Funcionários com login cadastrado</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Nome</th><th>Função</th></tr></thead><tbody>${staffRows.map((person) => `<tr><td>${escapeHtml(person.name)}</td><td>${escapeHtml(person.role)}</td></tr>`).join("") || `<tr><td colspan="2">Nenhum funcionário com login cadastrado.</td></tr>`}</tbody></table></div></section><section class="panel"><h3>Alunos por turma</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Turma</th><th>Aluno</th></tr></thead><tbody>${students.map((student) => `<tr><td>${escapeHtml(getClassLabel(student.className))}</td><td>${escapeHtml(student.name)}</td></tr>`).join("")}</tbody></table></div></section>`; } else if (tab === "documents") { content.innerHTML = `<section class="panel"><h3>Enviar documento ao aluno</h3><form class="contact-form" data-document-form><label>Aluno<select class="input" name="student_id" required>${buildOptions(state.students.map((s) => ({ value:s.id, label:`${s.name} — ${getClassLabel(s.className)}` })) )}</select></label><label>Tipo<select class="input" name="document_type"><option>Diploma</option><option>Histórico escolar</option><option>Declaração</option></select></label><label>Arquivo<input class="input" name="file" type="file" accept=".pdf,.doc,.docx,image/*" required></label><button class="button primary">Enviar documento</button></form></section>`; $("[data-document-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const file = form.get("file"); if (!file?.size) return; const [attachment] = await readAttachments([file]); const saved = await upsertRecord("student_documents", { student_id: form.get("student_id"), document_type: form.get("document_type"), file: attachment }, "id", "Documento enviado."); if (saved) await upsertRecord("private_notifications", { title:"Novo documento", message:`A Secretaria enviou: ${form.get("document_type")}.`, recipient_student_id: form.get("student_id") }, "id", "", { skipPortalRender:true }); }); } else { content.innerHTML = `<section class="panel"><h3>Solicitações recebidas</h3><div class="list-view">${requests.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.message)}</p>${item.reply ? `<p><strong>Resposta:</strong> ${escapeHtml(item.reply)}</p>` : `<button class="button ghost" data-reply-id="${item.id}">Responder</button>`}</div></article>`).join("") || emptyState("Nenhum atendimento.")}</div></section>`; $$('[data-reply-id]').forEach((b) => b.addEventListener("click", async () => { const reply = window.prompt("Resposta para a solicitação:"); const item = requests.find((r) => idsEqual(r.id,b.dataset.replyId)); if (!reply?.trim() || !item) return; await upsertRecord("support_requests", { ...item, reply:reply.trim(), status:"Respondido" }, "id", "Resposta enviada."); await upsertRecord("private_notifications", { title:"Resposta da Secretaria", message:reply.trim(), recipient_id:item.requester_id }, "id", "", { skipPortalRender:true }); show("requests"); })); } };
-  $("[data-download-print]")?.addEventListener("click", () => { const item = requests.find((request) => request.attachment?.data); if (item) downloadAttachment(item.attachment); }); $$('[data-secretary-tab]').forEach((b) => b.addEventListener("click", () => show(b.dataset.secretaryTab))); $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); }); show("requests");
+  const root = $("[data-login-root]");
+  const requests = state.supportRequests.slice().sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  root.innerHTML = `<div class="portal-heading"><div><h2>Secretaria Escolar: ${escapeHtml(employee.name)}</h2><p class="muted">Atendimento, documentos e cadastros escolares.</p></div><div class="row-actions">${notificationBell(session)}${passwordChangeButton(session)}${requests.some((item) => item.attachment?.data) ? '<button class="button ghost" data-download-print>Baixar último arquivo</button>' : ''}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="active" data-secretary-tab="requests">Atendimentos</button><button data-secretary-tab="people">Escola</button><button data-secretary-tab="documents">Documentos</button></div><div data-secretary-content></div>`;
+
+  root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
+  bindSectorChecklists(session);
+  const content = $("[data-secretary-content]");
+  const show = (tab) => {
+    $$("[data-secretary-tab]").forEach((button) => button.classList.toggle("active", button.dataset.secretaryTab === tab));
+    if (tab === "people") {
+      const staffRows = [
+        ...state.teachers.filter((person) => person.user).map((person) => ({ name: person.name, role: "Professor(a)" })),
+        ...state.staff.filter((person) => person.user).map((person) => ({ name: person.name, role: sectorLabels[person.sector] || person.sector }))
+      ].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+      const students = [...state.students].sort((a, b) => `${getClassLabel(a.className)}|${a.name}`.localeCompare(`${getClassLabel(b.className)}|${b.name}`, "pt-BR"));
+      content.innerHTML = `<section class="panel"><h3>Funcionários com login cadastrado</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Nome</th><th>Função</th></tr></thead><tbody>${staffRows.map((person) => `<tr><td>${escapeHtml(person.name)}</td><td>${escapeHtml(person.role)}</td></tr>`).join("") || `<tr><td colspan="2">Nenhum funcionário com login cadastrado.</td></tr>`}</tbody></table></div></section><section class="panel"><h3>Alunos por turma</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Turma</th><th>Aluno</th></tr></thead><tbody>${students.map((student) => `<tr><td>${escapeHtml(getClassLabel(student.className))}</td><td>${escapeHtml(student.name)}</td></tr>`).join("")}</tbody></table></div></section>`;
+      return;
+    }
+
+    if (tab === "documents") {
+      content.innerHTML = `<section class="panel"><h3>Enviar documento ao aluno</h3><form class="contact-form" data-document-form><label>Aluno<select class="input" name="student_id" required>${buildOptions(state.students.map((student) => ({ value: student.id, label: `${student.name} — ${getClassLabel(student.className)}` })) )}</select></label><label>Tipo<select class="input" name="document_type"><option>Diploma</option><option>Histórico escolar</option><option>Declaração</option></select></label><label>Arquivo<input class="input" name="file" type="file" accept=".pdf,.doc,.docx,image/*" required></label><button class="button primary">Enviar documento</button></form></section>`;
+      $("[data-document-form]").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.target);
+        const file = form.get("file");
+        if (!file?.size) return;
+        const [attachment] = await readAttachments([file]);
+        const saved = await upsertRecord("student_documents", { student_id: form.get("student_id"), document_type: form.get("document_type"), file: attachment }, "id", "Documento enviado.");
+        if (saved) await upsertRecord("private_notifications", { title: "Novo documento", message: `A Secretaria enviou: ${form.get("document_type")}.`, recipient_student_id: form.get("student_id") }, "id", "", { skipPortalRender: true });
+      });
+      return;
+    }
+
+    content.innerHTML = `<section class="panel"><h3>Solicitações recebidas</h3><div class="list-view">${requests.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.message)}</p>${item.reply ? `<p><strong>Resposta:</strong> ${escapeHtml(item.reply)}</p>` : `<button class="button ghost" data-reply-id="${escapeHtml(item.id)}">Responder</button>`}</div><button class="button danger" type="button" data-request-delete="${escapeHtml(item.id)}">Apagar</button></article>`).join("") || emptyState("Nenhum atendimento.")}</div></section>`;
+    $$("[data-reply-id]").forEach((button) => button.addEventListener("click", async () => {
+      const reply = window.prompt("Resposta para a solicitação:");
+      const item = requests.find((request) => idsEqual(request.id, button.dataset.replyId));
+      if (!reply?.trim() || !item) return;
+      await upsertRecord("support_requests", { ...item, reply: reply.trim(), status: "Respondido" }, "id", "Resposta enviada.");
+      await upsertRecord("private_notifications", { title: "Resposta da Secretaria", message: reply.trim(), recipient_id: item.requester_id }, "id", "", { skipPortalRender: true });
+      show("requests");
+    }));
+    $$("[data-request-delete]").forEach((button) => button.addEventListener("click", async () => {
+      const item = requests.find((request) => idsEqual(request.id, button.dataset.requestDelete));
+      if (!item || !window.confirm(`Apagar o atendimento de ${item.requester_name}?`)) return;
+      await deleteRecord("support_requests", "id", item.id, "Atendimento removido.");
+    }));
+  };
+
+  $("[data-download-print]")?.addEventListener("click", () => {
+    const item = requests.find((request) => request.attachment?.data);
+    if (item) downloadAttachment(item.attachment);
+  });
+  $$("[data-secretary-tab]").forEach((button) => button.addEventListener("click", () => show(button.dataset.secretaryTab)));
+  $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); });
+  bindPasswordChange(session);
+  show("requests");
 }
 
 function renderKitchenPanel(session, employee) {
@@ -2073,15 +2312,66 @@ function renderKitchenPanel(session, employee) {
   const weekdayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
   const menuByDay = Object.fromEntries(state.kitchenMenu.map((item) => [item.menu_date, item]));
   const low = state.kitchenStock.filter((item) => Number(item.quantity) <= Number(item.minimum_quantity) || (item.expiry_date && item.expiry_date <= new Date(Date.now()+7*864e5).toISOString().slice(0,10)));
-  root.innerHTML = `<div class="portal-heading"><div><h2>Cozinha / Merenda: ${escapeHtml(employee.name)}</h2><p class="muted">Confirme o preparo para registrar a baixa dos ingredientes.</p></div><div class="row-actions">${notificationBell(session)}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="${currentKitchenView === "operations" ? "active" : ""}" data-kitchen-view="operations">Operação</button><button class="${currentKitchenView === "reports" ? "active" : ""}" data-kitchen-view="reports">Relatórios de estoque</button></div>
-  ${currentKitchenView === "reports" ? `<section class="panel"><h3>Relatório de estoque</h3><div class="toolbar"><input class="input" data-stock-filter type="search" placeholder="Filtrar por alimento"><select class="input" data-stock-status><option value="">Todas as situações</option><option value="low">Estoque mínimo</option><option value="expiry">Validade próxima</option><option value="available">Disponível</option></select><select class="input" data-stock-order><option value="name">Ordenar: alimento</option><option value="quantity">Ordenar: quantidade</option><option value="expiry">Ordenar: validade</option></select></div><div class="table-scroll"><table class="report-table"><thead><tr><th>Produto</th><th>Quantidade</th><th>Mínimo</th><th>Validade</th><th>Situação</th></tr></thead><tbody data-stock-report>${state.kitchenStock.map((item) => `<tr data-stock-row data-name="${escapeHtml(normalizeLabel(item.name))}" data-quantity="${item.quantity}" data-expiry="${escapeHtml(item.expiry_date || "9999-12-31")}" data-low="${Number(item.quantity) <= Number(item.minimum_quantity)}" data-expiring="${Boolean(item.expiry_date && item.expiry_date <= new Date(Date.now()+7*864e5).toISOString().slice(0,10))}"><td>${escapeHtml(item.name)}</td><td>${item.quantity} ${escapeHtml(item.unit || "")}</td><td>${item.minimum_quantity}</td><td>${escapeHtml(item.expiry_date || "—")}</td><td>${Number(item.quantity) <= Number(item.minimum_quantity) ? "Estoque mínimo" : item.expiry_date && item.expiry_date <= new Date(Date.now()+7*864e5).toISOString().slice(0,10) ? "Validade próxima" : "Disponível"}</td></tr>`).join("") || `<tr><td colspan="5">Nenhum item cadastrado.</td></tr>`}</tbody></table></div></section>` : `
+  const expiringSoon = (date) => Boolean(date && date <= new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10));
+  const stockRows = state.kitchenStock.map((item) => {
+    const isLow = Number(item.quantity) <= Number(item.minimum_quantity);
+    const isExpiring = expiringSoon(item.expiry_date);
+    const status = isLow ? "Estoque mínimo" : isExpiring ? "Validade próxima" : "Disponível";
+    return `<tr data-stock-row data-name="${escapeHtml(normalizeLabel(item.name))}" data-quantity="${item.quantity}" data-expiry="${escapeHtml(item.expiry_date || "9999-12-31")}" data-low="${isLow}" data-expiring="${isExpiring}"><td>${escapeHtml(item.name)}</td><td>${item.quantity} ${escapeHtml(item.unit || "")}</td><td>${item.minimum_quantity}</td><td>${escapeHtml(item.expiry_date || "—")}</td><td>${status}</td><td><div class="row-actions"><button class="button ghost" type="button" data-stock-edit="${escapeHtml(item.id)}">Alterar</button><button class="button danger" type="button" data-stock-delete="${escapeHtml(item.id)}">Apagar</button></div></td></tr>`;
+  }).join("");
+
+  root.innerHTML = `<div class="kitchen-portal"><div class="portal-heading kitchen-heading"><div><span class="kitchen-eyebrow">GESTÃO DA MERENDA</span><h2>Cozinha / Merenda: ${escapeHtml(employee.name)}</h2><p class="muted">Confirme o preparo para registrar a baixa dos ingredientes.</p></div><div class="row-actions">${notificationBell(session)}${passwordChangeButton(session)}<button class="button ghost" data-logout>Sair</button></div></div><div class="kitchen-summary"><article><span>Cardápios na semana</span><strong>${state.kitchenMenu.filter((item) => weekDays.includes(item.menu_date)).length}</strong></article><article class="${low.length ? "attention" : ""}"><span>Itens em atenção</span><strong>${low.length}</strong></article><article><span>Estoque cadastrado</span><strong>${state.kitchenStock.length}</strong></article></div><div class="segmented kitchen-tabs"><button class="${currentKitchenView === "operations" ? "active" : ""}" data-kitchen-view="operations">Operação</button><button class="${currentKitchenView === "reports" ? "active" : ""}" data-kitchen-view="reports">Relatórios de estoque</button></div>
+  ${currentKitchenView === "reports" ? `<section class="panel"><h3>Relatório de estoque</h3><div class="toolbar"><input class="input" data-stock-filter type="search" placeholder="Filtrar por alimento"><select class="input" data-stock-status><option value="">Todas as situações</option><option value="low">Estoque mínimo</option><option value="expiry">Validade próxima</option><option value="available">Disponível</option></select><select class="input" data-stock-order><option value="name">Ordenar: alimento</option><option value="quantity">Ordenar: quantidade</option><option value="expiry">Ordenar: validade</option></select></div><div class="table-scroll"><table class="report-table"><thead><tr><th>Produto</th><th>Quantidade</th><th>Mínimo</th><th>Validade</th><th>Situação</th><th>Ações</th></tr></thead><tbody data-stock-report>${stockRows || `<tr><td colspan="6">Nenhum item cadastrado.</td></tr>`}</tbody></table></div><form class="contact-form" data-stock-edit-form hidden><h4>Alterar alimento</h4><input type="hidden" name="id"><label>Produto<input class="input" name="name" required></label><label>Quantidade atual<input class="input" name="quantity" type="number" min="0" step="0.01" required></label><label>Unidade<input class="input" name="unit" placeholder="kg, L, unidade"></label><label>Estoque mínimo<input class="input" name="minimum_quantity" type="number" min="0" step="0.01" required></label><label>Validade<input class="input" name="expiry_date" type="date"></label><div class="row-actions"><button class="button primary" type="submit">Salvar alterações</button><button class="button ghost" type="button" data-stock-edit-cancel>Cancelar</button></div></form></section>` : `
   <section class="panel"><h3>Cardápio nutricional — semana</h3><div class="table-scroll"><table class="report-table"><thead><tr><th>Dia</th><th>Cardápio planejado</th><th>Ingredientes</th><th>Confirmação</th></tr></thead><tbody>${weekDays.map((date, index) => { const item = menuByDay[date]; const done = item?.status || ""; return `<tr><td><strong>${weekdayNames[index]}</strong></td><td>${escapeHtml(item?.meal || "Não publicado")}${item?.actual_meal ? `<br><small>Realizado: ${escapeHtml(item.actual_meal)}</small>` : ""}</td><td>${escapeHtml(item?.ingredients || "—")}</td><td>${!item ? "—" : done ? `<span class="badge">${escapeHtml(done)}</span>` : `<div class="row-actions"><button class="button primary" data-kitchen-made data-id="${item.id}">Fez</button><button class="button ghost" data-kitchen-no-class data-id="${item.id}">Sem aula</button><button class="button ghost" data-kitchen-change data-id="${item.id}">Mudou</button></div>`}</td></tr>`; }).join("")}</tbody></table></div></section>
   <section class="panel"><h3>Estoque e validade</h3>${low.length ? `<p class="warning-text">${low.length} item(ns) exigem atenção: estoque mínimo ou validade próxima.</p>` : ""}<div class="table-scroll"><table class="report-table"><thead><tr><th>Produto</th><th>Quantidade disponível</th><th>Mínimo</th><th>Validade</th></tr></thead><tbody>${state.kitchenStock.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td><strong>${item.quantity} ${escapeHtml(item.unit || "")}</strong></td><td>${item.minimum_quantity}</td><td>${escapeHtml(item.expiry_date || "—")}</td></tr>`).join("") || `<tr><td colspan="4">Nenhum item cadastrado.</td></tr>`}</tbody></table></div><form class="contact-form" data-kitchen-stock-form><h4>Registrar quantidade em estoque</h4><label>Produto<input class="input" name="name" required></label><label>Quantidade atual<input class="input" name="quantity" type="number" min="0" step="0.01" required></label><label>Unidade<input class="input" name="unit" placeholder="kg, L, unidade"></label><label>Estoque mínimo<input class="input" name="minimum_quantity" type="number" min="0" step="0.01" required></label><label>Validade<input class="input" name="expiry_date" type="date"></label><button class="button primary">Salvar estoque</button></form><form class="contact-form" data-restock-form><label>Itens para reposição<textarea class="input" name="items" rows="3" required placeholder="Ex.: Arroz 10 kg; leite 20 L"></textarea></label><button class="button primary">Solicitar reposição à administração</button></form></section>
-  <section class="panel"><h3>Restrições alimentares</h3><div class="list-view">${state.dietaryRestrictions.map((item) => { const student = state.students.find((person) => idsEqual(person.id, item.student_id)); return `<article class="list-item"><div><strong>${escapeHtml(student?.name || item.student_name || "Aluno")}${student ? ` — ${escapeHtml(getClassLabel(student.className))}` : item.class_name ? ` — ${escapeHtml(item.class_name)}` : ""}</strong><p class="muted">${escapeHtml(item.restriction)}</p></div></article>`; }).join("") || emptyState("Nenhuma restrição cadastrada.")}</div></section>`}`;
+  <section class="panel"><h3>Restrições alimentares</h3><div class="list-view">${state.dietaryRestrictions.map((item) => { const student = state.students.find((person) => idsEqual(person.id, item.student_id)); return `<article class="list-item"><div><strong>${escapeHtml(student?.name || item.student_name || "Aluno")}${student ? ` — ${escapeHtml(getClassLabel(student.className))}` : item.class_name ? ` — ${escapeHtml(item.class_name)}` : ""}</strong><p class="muted">${escapeHtml(item.restriction)}</p></div></article>`; }).join("") || emptyState("Nenhuma restrição cadastrada.")}</div></section>`}</div>`;
+  root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
+  bindSectorChecklists(session);
   $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); });
+  bindPasswordChange(session);
   $$('[data-kitchen-view]').forEach((button) => button.addEventListener("click", () => { currentKitchenView = button.dataset.kitchenView; renderKitchenPanel(session, employee); }));
+  root.insertAdjacentHTML("beforeend", `<section class="panel"><h3>Baixa diária de produtos</h3><p class="muted">Registre os produtos utilizados; o saldo é atualizado imediatamente.</p><form class="contact-form" data-kitchen-consumption-form><label>Produto<select class="input" name="stock_id" required><option value="">Selecione</option>${state.kitchenStock.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} — ${item.quantity} ${escapeHtml(item.unit || "")}</option>`).join("")}</select></label><label>Quantidade utilizada<input class="input" name="quantity" type="number" min="0.01" step="0.01" required></label><label>Observação<input class="input" name="note" placeholder="Ex.: almoço"></label><button class="button primary">Baixar do estoque</button></form></section>`);
+  $("[data-kitchen-consumption-form]")?.addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const stock = state.kitchenStock.find((item) => idsEqual(item.id, form.get("stock_id"))); const used = Number(form.get("quantity")); if (!stock || !Number.isFinite(used) || used <= 0 || used > Number(stock.quantity)) return toast("Informe uma quantidade válida, menor ou igual ao estoque disponível."); const saved = await upsertRecord("kitchen_stock", { ...stock, quantity: Number(stock.quantity) - used }, "id", "Baixa de estoque registrada.", { skipPortalRender: true }); if (saved) renderKitchenPanel(session, employee); });
   const applyStockFilters = () => { const text = normalizeLabel($("[data-stock-filter]")?.value || ""); const status = $("[data-stock-status]")?.value || ""; $$('[data-stock-row]').forEach((row) => { row.hidden = Boolean(text && !row.dataset.name.includes(text)) || (status === "low" && row.dataset.low !== "true") || (status === "expiry" && row.dataset.expiring !== "true") || (status === "available" && (row.dataset.low === "true" || row.dataset.expiring === "true")); }); };
   $("[data-stock-filter]")?.addEventListener("input", applyStockFilters); $("[data-stock-status]")?.addEventListener("change", applyStockFilters); $("[data-stock-order]")?.addEventListener("change", (event) => { const body = $("[data-stock-report]"); if (!body) return; [...$$('[data-stock-row]', body)].sort((a,b) => String(a.dataset[event.target.value] || "").localeCompare(String(b.dataset[event.target.value] || ""), "pt-BR", { numeric: true })).forEach((row) => body.append(row)); });
+  $$("[data-stock-edit]").forEach((button) => button.addEventListener("click", () => {
+    const item = state.kitchenStock.find((stock) => idsEqual(stock.id, button.dataset.stockEdit));
+    const form = $("[data-stock-edit-form]");
+    if (!item || !form) return;
+    form.elements.namedItem("id").value = item.id;
+    form.elements.namedItem("name").value = item.name || "";
+    form.elements.namedItem("quantity").value = item.quantity ?? 0;
+    form.elements.namedItem("unit").value = item.unit || "";
+    form.elements.namedItem("minimum_quantity").value = item.minimum_quantity ?? 0;
+    form.elements.namedItem("expiry_date").value = item.expiry_date || "";
+    form.hidden = false;
+    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }));
+  $$("[data-stock-delete]").forEach((button) => button.addEventListener("click", async () => {
+    const item = state.kitchenStock.find((stock) => idsEqual(stock.id, button.dataset.stockDelete));
+    if (!item || !window.confirm(`Apagar o alimento ${item.name}?`)) return;
+    await deleteRecord("kitchen_stock", "id", item.id, "Alimento removido.");
+  }));
+  $("[data-stock-edit-cancel]")?.addEventListener("click", () => {
+    const form = $("[data-stock-edit-form]");
+    if (form) {
+      form.reset();
+      form.hidden = true;
+    }
+  });
+  $("[data-stock-edit-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const saved = await upsertRecord("kitchen_stock", {
+      id: form.get("id"),
+      name: String(form.get("name")).trim(),
+      quantity: form.get("quantity"),
+      unit: String(form.get("unit") || "").trim(),
+      minimum_quantity: form.get("minimum_quantity"),
+      expiry_date: form.get("expiry_date") || null
+    }, "id", "Alimento atualizado.", { skipPortalRender: true });
+    if (saved) renderKitchenPanel(session, employee);
+  });
   $$('[data-kitchen-made]').forEach((button) => button.addEventListener("click", async () => {
     const item = state.kitchenMenu.find((menuItem) => idsEqual(menuItem.id, button.dataset.id)); if (!item) return;
     const ingredients = String(item.ingredients || "").split(/[;,]/).map((part) => part.trim()).filter(Boolean);
@@ -2090,11 +2380,22 @@ function renderKitchenPanel(session, employee) {
   }));
   $$('[data-kitchen-no-class]').forEach((button) => button.addEventListener("click", async () => { const item = state.kitchenMenu.find((entry) => idsEqual(entry.id, button.dataset.id)); if (item) { await upsertRecord("kitchen_menu", { ...item, status: "Não houve aula" }, "id", "Dia marcado sem aula.", { skipPortalRender: true }); renderKitchenPanel(session, employee); } }));
   $$('[data-kitchen-change]').forEach((button) => button.addEventListener("click", async () => { const item = state.kitchenMenu.find((entry) => idsEqual(entry.id, button.dataset.id)); const meal = window.prompt("Qual cardápio foi preparado?"); if (!item || !meal?.trim()) return; const used = window.prompt("Ingredientes usados para baixa (ex.: Arroz: 2; Leite: 1)") || ""; for (const entry of used.split(/[;,]/).map((value) => value.trim()).filter(Boolean)) { const [name, amount] = entry.split(":").map((value) => value.trim()); const stock = state.kitchenStock.find((s) => normalizeLabel(s.name) === normalizeLabel(name)); if (stock && Number(amount)) await upsertRecord("kitchen_stock", { ...stock, quantity: Math.max(0, Number(stock.quantity) - Number(amount)) }, "id", "", { skipPortalRender: true }); } await upsertRecord("kitchen_menu", { ...item, status: "Cardápio alterado", actual_meal: meal.trim() }, "id", "Alteração registrada e estoque atualizado.", { skipPortalRender: true }); renderKitchenPanel(session, employee); }));
-  $("[data-kitchen-stock-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const name = String(form.get("name")).trim(); const existing = state.kitchenStock.find((item) => normalizeLabel(item.name) === normalizeLabel(name)); const saved = await upsertRecord("kitchen_stock", { ...(existing ? { id: existing.id } : {}), name, quantity: form.get("quantity"), unit: form.get("unit"), minimum_quantity: form.get("minimum_quantity"), expiry_date: form.get("expiry_date") || null }, "id", "Estoque salvo.", { skipPortalRender: true }); if (saved) renderKitchenPanel(session, employee); });
-  $("[data-restock-form]").addEventListener("submit", async (event) => { event.preventDefault(); const items = new FormData(event.target).get("items"); await upsertRecord("private_notifications", { title: "Solicitação de reposição — Cozinha", message: String(items), recipient_role: "all_admins" }, "id", "Solicitação enviada.", { skipPortalRender: true }); event.target.reset(); });
+  $("[data-kitchen-stock-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const name = String(form.get("name")).trim();
+    const existing = state.kitchenStock.find((item) => normalizeLabel(item.name) === normalizeLabel(name));
+    const saved = await upsertRecord("kitchen_stock", { ...(existing ? { id: existing.id } : {}), name, quantity: form.get("quantity"), unit: form.get("unit"), minimum_quantity: form.get("minimum_quantity"), expiry_date: form.get("expiry_date") || null }, "id", "Alimento salvo.", { skipPortalRender: true });
+    if (saved) {
+      currentKitchenView = "reports";
+      renderKitchenPanel(session, employee);
+    }
+  });
+  $("[data-restock-form]")?.addEventListener("submit", async (event) => { event.preventDefault(); const items = new FormData(event.target).get("items"); await upsertRecord("private_notifications", { title: "Solicitação de reposição — Cozinha", message: String(items), recipient_role: "all_admins" }, "id", "Solicitação enviada.", { skipPortalRender: true }); event.target.reset(); });
 }
 
 async function syncAdminData(message, { skipPortalRender = false } = {}) {
+  hasUnsavedFormChanges = false;
   if (currentPageName() === "login" && !skipPortalRender) {
     renderLoginPortal();
   } else {
@@ -2111,6 +2412,7 @@ function tabLabel(tab) {
     students: "Alunos",
     teachers: "Professores",
     staff: "Funcionários",
+    director: "Diretor",
     notifications: "Avisos",
     kitchen: "Cozinha",
     grades: "Notas",
@@ -2133,10 +2435,11 @@ function renderAdmin() {
   root.innerHTML = `
     <div class="admin-layout">
       <aside class="admin-tabs" aria-label="Menu administrativo">
-        ${["dashboard", "school", "catalog", "students", "teachers", "staff", "kitchen", "notifications", "grades", "content"]
+        ${["dashboard", "director", "school", "catalog", "students", "teachers", "staff", "kitchen", "notifications", "grades", "content"]
           .map((tab) => `<button data-admin-tab="${tab}" class="${currentAdminTab === tab ? "active" : ""}">${tabLabel(tab)}</button>`)
           .join("")}
         ${notificationBell(session)}
+        ${passwordChangeButton(session)}
         <button data-logout>Sair</button>
       </aside>
       <section class="panel" data-admin-content></section>
@@ -2154,6 +2457,7 @@ function renderAdmin() {
     clearSession();
     renderLoginPortal();
   });
+  bindPasswordChange(session);
 
   renderAdminContent();
 }
@@ -2182,6 +2486,11 @@ function renderAdminContent() {
 
   if (currentAdminTab === "school") {
     renderSchoolAdmin(content);
+    return;
+  }
+
+  if (currentAdminTab === "director") {
+    renderDirectorAdmin(content);
     return;
   }
 
@@ -3015,6 +3324,100 @@ function renderStudentsAdmin(content) {
   }
 }
 
+function renderDirectorAdmin(content) {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
+  const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  const currentMinutes = Number(nowParts.find((part) => part.type === "hour")?.value || 0) * 60 + Number(nowParts.find((part) => part.type === "minute")?.value || 0);
+  const attendanceAlerts = state.staff.filter((person) => {
+    const entries = state.attendanceTimeEntries.filter((entry) => idsEqual(entry.user_id, person.id) && entry.user_role === "staff" && String(entry.recorded_at || "").slice(0, 10) === today);
+    return (currentMinutes > 510 && !entries.some((entry) => entry.event_type === "entry")) || (currentMinutes > 900 && !entries.some((entry) => entry.event_type === "exit"));
+  });
+  const checklistToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const weekday = new Date().getDay();
+  const checklistTracking = state.sectorChecklists.filter((item) => item.active !== false && (Array.isArray(item.weekdays) ? item.weekdays : [0,1,2,3,4,5,6]).includes(weekday)).flatMap((checklist) => {
+    const items = state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id));
+    return state.sectorChecklistAssignees.filter((assignee) => idsEqual(assignee.checklist_id, checklist.id)).map((assignee) => {
+      const done = state.sectorChecklistCompletions.filter((entry) => idsEqual(entry.checklist_id, checklist.id) && idsEqual(entry.user_id, assignee.user_id) && entry.user_role === assignee.user_role && entry.completed && entry.completed_on === checklistToday).length;
+      const person = assignee.user_role === "teacher" ? state.teachers.find((item) => idsEqual(item.id, assignee.user_id)) : state.staff.find((item) => idsEqual(item.id, assignee.user_id));
+      return { checklist, items, done, person };
+    });
+  });
+  const todayEntries = state.timeEntries.filter((entry) => String(entry.recorded_at || "").slice(0, 10) === today);
+  const profiles = state.workforceProfiles;
+  const scheduledToday = profiles.filter((profile) => state.workSchedules.some((schedule) => schedule.profile_id === profile.auth_user_id && Number(schedule.weekday) === new Date(`${today}T12:00:00`).getDay()));
+  const present = new Set(todayEntries.filter((entry) => entry.event_type === "entry").map((entry) => entry.profile_id));
+  const activeTasks = state.workTasks.filter((task) => task.status === "published");
+  const assignments = state.workTaskAssignees.filter((item) => activeTasks.some((task) => idsEqual(task.id, item.task_id)));
+  const completed = assignments.filter((item) => item.status === "completed");
+  const pending = assignments.filter((item) => item.status !== "completed");
+  const overdue = pending.filter((item) => {
+    const task = activeTasks.find((value) => idsEqual(value.id, item.task_id));
+    return task?.due_at && new Date(task.due_at) < new Date();
+  });
+  const pendingNotices = state.notifications.filter((item) => item.recipient_role === "all_admins" || item.recipient_role === "all_school").slice(-6).reverse();
+  const canReadWorkforce = profiles.length || state.workSchedules.length || state.workTasks.length || state.timeEntries.length;
+  const displayName = (profileId) => profiles.find((profile) => idsEqual(profile.auth_user_id, profileId))?.display_name || "Profissional";
+  const sector = (profileId) => profiles.find((profile) => idsEqual(profile.auth_user_id, profileId))?.sector || "—";
+  content.innerHTML = `
+    <div class="director-shell">
+      <div class="director-hero"><div><span>Painel de gestão</span><h2>Diretor</h2><p>Acompanhe presença, checklists e pendências da equipe em um só lugar.</p></div><button class="button primary" type="button" data-director-notifications>Ver avisos</button></div>
+      ${!canReadWorkforce ? `<section class="panel director-access-note"><h3>Ative a gestão segura da equipe</h3><p>O módulo foi instalado no Supabase. Vincule este administrador ao perfil <strong>director</strong> no Supabase Auth para visualizar e administrar pontos e checklists protegidos.</p></section>` : ""}
+      <div class="director-kpis">
+        ${miniStat("Equipe escalada hoje", scheduledToday.length)}
+        ${miniStat("Presentes", present.size)}
+        ${miniStat("Sem entrada", Math.max(0, scheduledToday.filter((profile) => !present.has(profile.auth_user_id)).length))}
+        ${miniStat("Checklists concluídos", completed.length)}
+        ${miniStat("Checklists pendentes", pending.length)}
+        ${miniStat("Vencidos", overdue.length)}
+      </div>
+      <div class="director-grid">
+        <section class="panel"><div class="portal-heading compact"><div><h3>Checklists de hoje</h3><p class="muted">Acompanhamento por local e responsável.</p></div></div><div class="list-view">${checklistTracking.map(({ checklist, items, done, person }) => `<article class="list-item director-row"><div><strong>${escapeHtml(checklist.title)}</strong><p class="muted">${escapeHtml(checklist.location || checklist.sector)} · ${escapeHtml(person?.name || "Responsável")}</p></div><span class="badge ${items.length && done === items.length ? "success" : "warning"}">${items.length && done === items.length ? "Concluído" : `${done}/${items.length} itens`}</span></article>`).join("") || emptyState("Não há checklists escalados para hoje.")}</div></section>
+        <section class="panel"><div class="portal-heading compact"><div><h3>Alertas do ponto</h3><p class="muted">Avisos automáticos após os prazos de registro.</p></div></div><div class="list-view">${attendanceAlerts.map((person) => `<article class="list-item director-row"><div><strong>${escapeHtml(person.name)}</strong><p class="muted">${escapeHtml(sectorLabels[person.sector] || person.sector)}</p></div><span class="badge warning">${currentMinutes > 900 ? "Saída sem registro" : "Entrada sem registro"}</span></article>`).join("") || emptyState("Nenhum alerta de ponto neste momento.")}</div></section>
+        <section class="panel"><div class="portal-heading compact"><div><h3>Ponto eletrônico — hoje</h3><p class="muted">Apenas pessoas escaladas precisam registrar presença.</p></div></div><div class="list-view">${scheduledToday.map((profile) => `<article class="list-item director-row"><div><strong>${escapeHtml(profile.display_name)}</strong><p class="muted">${escapeHtml(profile.sector || "Setor não definido")}</p></div><span class="badge ${present.has(profile.auth_user_id) ? "success" : "warning"}">${present.has(profile.auth_user_id) ? "Entrada registrada" : "Sem registro"}</span></article>`).join("") || emptyState("Nenhuma escala cadastrada para hoje.")}</div></section>
+        <section class="panel"><div class="portal-heading compact"><div><h3>Checklists da equipe</h3><p class="muted">Quem não foi designado ou não trabalha no dia não entra como pendente.</p></div></div><div class="list-view">${pending.map((assignment) => { const task = activeTasks.find((item) => idsEqual(item.id, assignment.task_id)); const isOverdue = task?.due_at && new Date(task.due_at) < new Date(); return `<article class="list-item director-row"><div><strong>${escapeHtml(task?.title || "Checklist")}</strong><p class="muted">${escapeHtml(displayName(assignment.profile_id))} · ${escapeHtml(sector(assignment.profile_id))}</p></div><span class="badge ${isOverdue ? "warning" : ""}">${isOverdue ? "Vencido" : "Não concluído"}</span></article>`; }).join("") || emptyState("Todos os checklists distribuídos foram concluídos.")}</div></section>
+      </div>
+      <section class="panel"><div class="portal-heading compact"><div><h3>Criar checklist por setor</h3><p class="muted">Ele aparecerá automaticamente no painel do setor selecionado.</p></div></div><form class="contact-form" data-sector-checklist-form><label>Setor<select class="input" name="sector" required>${buildOptions(Object.entries(sectorLabels).map(([value, label]) => ({ value, label })))}</select></label><label>Título<input class="input" name="title" required></label><label>Orientação<textarea class="input" name="description" rows="2"></textarea></label><label>Itens (um por linha)<textarea class="input" name="items" rows="5" required></textarea></label><button class="button primary">Publicar checklist</button></form><div class="list-view">${state.sectorChecklists.map((checklist) => `<article class="list-item"><div><strong>${escapeHtml(checklist.title)}</strong><p class="muted">${escapeHtml(sectorLabels[checklist.sector] || checklist.sector)} · ${state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id)).length} item(ns)</p></div><button class="button ghost" type="button" data-sector-checklist-delete="${escapeHtml(checklist.id)}">Excluir</button></article>`).join("") || emptyState("Nenhum checklist publicado.")}</div></section>
+      <section class="panel" data-director-notification-panel hidden><div class="portal-heading compact"><h3>Notificações da direção</h3><button class="button ghost" data-director-notifications>Fechar</button></div><div class="list-view">${pendingNotices.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.title)}</strong><p class="muted">${escapeHtml(item.message)}</p></div></article>`).join("") || emptyState("Nenhuma notificação pendente.")}</div></section>
+    </div>`;
+  $$('[data-director-notifications]').forEach((button) => button.addEventListener("click", () => { const panel = $(`[data-director-notification-panel]`); if (panel) panel.hidden = !panel.hidden; }));
+  const editingChecklist = state.sectorChecklists.find((item) => idsEqual(item.id, editingSectorChecklistId));
+  const checklistPeople = [
+    ...state.teachers.map((person) => ({ id: person.id, role: "teacher", name: person.name, sector: "professores" })),
+    ...state.staff.map((person) => ({ id: person.id, role: "staff", name: person.name, sector: person.sector }))
+  ].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const selectedPeople = new Set(state.sectorChecklistAssignees.filter((item) => editingChecklist && idsEqual(item.checklist_id, editingChecklist.id)).map((item) => `${item.user_role}:${item.user_id}`));
+  const selectedDays = new Set(editingChecklist?.weekdays || [1, 2, 3, 4, 5]);
+  const dayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  const editor = $("[data-sector-checklist-form]");
+  if (editor) editor.outerHTML = `<form class="contact-form" data-sector-checklist-form><input type="hidden" name="id" value="${escapeHtml(editingChecklist?.id || "")}"><label>Setor / destino<select class="input" name="sector" required>${buildOptions(Object.entries(sectorLabels).map(([value, label]) => ({ value, label })), editingChecklist?.sector || "")}</select></label><label>Local onde será usado<input class="input" name="location" value="${escapeHtml(editingChecklist?.location || "")}" placeholder="Ex.: Limpeza — sala 3A" required></label><label>Título do checklist<input class="input" name="title" value="${escapeHtml(editingChecklist?.title || "")}" placeholder="Ex.: Limpeza da sala 3A" required></label><label>Orientação<textarea class="input" name="description" rows="2">${escapeHtml(editingChecklist?.description || "")}</textarea></label><fieldset class="checklist-schedule"><legend>Dias em que deve aparecer</legend>${dayLabels.map((day, index) => `<label><input type="checkbox" name="weekdays" value="${index}" ${selectedDays.has(index) ? "checked" : ""}> ${day}</label>`).join("")}</fieldset><fieldset class="checklist-assignees"><legend>Quem vai preencher</legend><p class="muted">Selecione as pessoas da escala. O checklist só aparece para elas, nos dias definidos.</p><div>${checklistPeople.map((person) => `<label><input type="checkbox" name="assignees" value="${person.role}:${escapeHtml(person.id)}" ${selectedPeople.has(`${person.role}:${person.id}`) ? "checked" : ""}> <span>${escapeHtml(person.name)}</span><small>${escapeHtml(sectorLabels[person.sector] || person.sector)}</small></label>`).join("") || "<p class=\"muted\">Cadastre professores ou funcionários para selecionar responsáveis.</p>"}</div></fieldset><label>Itens (um por linha)<textarea class="input" name="items" rows="5" required>${escapeHtml(editingChecklist ? state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, editingChecklist.id)).sort((a,b) => Number(a.position) - Number(b.position)).map((item) => item.label).join("\n") : "")}</textarea></label><div class="row-actions"><button class="button primary">${editingChecklist ? "Salvar alterações" : "Publicar checklist"}</button>${editingChecklist ? '<button class="button ghost" type="button" data-sector-checklist-cancel>Cancelar edição</button>' : ""}</div></form>`;
+  $$('[data-sector-checklist-delete]').forEach((button) => button.insertAdjacentHTML("beforebegin", `<button class="button ghost" type="button" data-sector-checklist-edit="${escapeHtml(button.dataset.sectorChecklistDelete)}">Editar</button>`));
+  $("[data-sector-checklist-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = new FormData(event.target);
+    const labels = String(form.get("items") || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    if (!labels.length) return toast("Informe ao menos um item.");
+    const id = String(form.get("id") || "");
+    const payload = { sector: form.get("sector"), location: String(form.get("location") || "").trim(), title: String(form.get("title")).trim(), description: String(form.get("description") || "").trim(), weekdays: form.getAll("weekdays").map(Number), created_by: String(getSession()?.id || "direcao") };
+    if (!payload.location || !payload.weekdays.length) return toast("Informe o local e ao menos um dia da escala.");
+    const result = id ? await supabase.from("sector_checklists").update(payload).eq("id", id).select().single() : await supabase.from("sector_checklists").insert(payload).select().single();
+    const { data: checklist, error } = result;
+    if (error) return toast("Não foi possível criar o checklist. Execute a migração do Supabase.");
+    if (id) { await supabase.from("sector_checklist_items").delete().eq("checklist_id", id); await supabase.from("sector_checklist_assignees").delete().eq("checklist_id", id); }
+    const { error: itemsError } = await supabase.from("sector_checklist_items").insert(labels.map((label, position) => ({ checklist_id: checklist.id, label, position })));
+    if (itemsError) return toast("Checklist criado, mas os itens não puderam ser salvos.");
+    const assignees = form.getAll("assignees").map((value) => { const [user_role, user_id] = String(value).split(":"); return { checklist_id: checklist.id, user_id, user_role }; });
+    if (assignees.length) { const { error: assigneeError } = await supabase.from("sector_checklist_assignees").insert(assignees); if (assigneeError) return toast("Checklist salvo, mas falhou ao salvar os responsáveis."); }
+    editingSectorChecklistId = null; clearCache("sector_checklists"); clearCache("sector_checklist_items"); clearCache("sector_checklist_assignees"); await loadDataFromSupabase({ forceNetwork: true }); toast(id ? "Checklist atualizado." : "Checklist publicado."); renderDirectorAdmin(content);
+  });
+  $("[data-sector-checklist-cancel]")?.addEventListener("click", () => { editingSectorChecklistId = null; renderDirectorAdmin(content); });
+  $$('[data-sector-checklist-edit]').forEach((button) => button.addEventListener("click", () => { editingSectorChecklistId = button.dataset.sectorChecklistEdit; renderDirectorAdmin(content); }));
+  $$('[data-sector-checklist-delete]').forEach((button) => button.addEventListener("click", async () => {
+    if (!window.confirm("Excluir este checklist e seus itens?")) return;
+    const { error } = await supabase.from("sector_checklists").delete().eq("id", button.dataset.sectorChecklistDelete);
+    if (error) return toast("Não foi possível excluir o checklist.");
+    clearCache("sector_checklists"); await loadDataFromSupabase({ forceNetwork: true }); renderDirectorAdmin(content);
+  }));
+}
+
 function renderStaffAdmin(content) {
   content.innerHTML = `
     <div class="portal-heading"><div><h2>Funcionários</h2><p class="muted">Crie e gerencie os acessos internos da escola.</p></div></div>
@@ -3565,7 +3968,7 @@ function renderRecoveryCell(grade, trimester, student) {
   return `
     <div class="recovery-slot">
       <span class="muted">${label}</span>
-      <input class="input" data-recovery-input name="rec-${student.id}" type="number" min="0" max="10" step="0.1" value="${recoveryScore || ""}" placeholder="Nota" ${
+      <input class="input" data-recovery-input name="rec-${student.id}" type="text" inputmode="decimal" value="${recoveryScore || ""}" placeholder="Ex.: 7,5" ${
         regularAverage >= 6 && !recoveryScore ? "disabled" : ""
       }>
     </div>
@@ -3593,9 +3996,9 @@ function teacherStudentRow(student, teacher, trimester, subject, className) {
         <strong>${escapeHtml(student.name)}</strong>
         <small>Turma ${escapeHtml(getClassLabel(className))}</small>
       </div>
-      <label class="grade-input-cell" data-label="N1"><input class="input" aria-label="Nota 1 de ${escapeHtml(student.name)}" name="n1-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n1 || ""}" data-score-input="n1"></label>
-      <label class="grade-input-cell" data-label="N2"><input class="input" aria-label="Nota 2 de ${escapeHtml(student.name)}" name="n2-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n2 || ""}" data-score-input="n2"></label>
-      <label class="grade-input-cell" data-label="N3"><input class="input" aria-label="Nota 3 de ${escapeHtml(student.name)}" name="n3-${student.id}" type="number" min="0" max="10" step="0.1" value="${trimesterData.n3 || ""}" data-score-input="n3"></label>
+      <label class="grade-input-cell" data-label="N1"><input class="input" aria-label="Nota 1 de ${escapeHtml(student.name)}" name="n1-${student.id}" type="text" inputmode="decimal" value="${trimesterData.n1 || ""}" placeholder="Ex.: 7,5" data-score-input="n1"></label>
+      <label class="grade-input-cell" data-label="N2"><input class="input" aria-label="Nota 2 de ${escapeHtml(student.name)}" name="n2-${student.id}" type="text" inputmode="decimal" value="${trimesterData.n2 || ""}" placeholder="Ex.: 7,5" data-score-input="n2"></label>
+      <label class="grade-input-cell" data-label="N3"><input class="input" aria-label="Nota 3 de ${escapeHtml(student.name)}" name="n3-${student.id}" type="text" inputmode="decimal" value="${trimesterData.n3 || ""}" placeholder="Ex.: 7,5" data-score-input="n3"></label>
       <div class="grade-value-cell" data-label="Recuperacao" data-recovery-cell>${renderRecoveryCell(grade, trimester, student)}</div>
       <strong class="grade-value-cell" data-label="Media" data-average>${average}</strong>
       <span class="grade-value-cell badge ${approved ? "success" : "warning"}" data-label="Situacao" data-status>${statusText}</span>
@@ -3824,10 +4227,16 @@ function setupPreferences() {
 }
 
 function setupUi() {
+  document.addEventListener("input", (event) => {
+    if (event.target.matches("input, textarea, select") && event.target.closest("form")) hasUnsavedFormChanges = true;
+  }, true);
+  document.addEventListener("change", (event) => {
+    if (event.target.matches("input, textarea, select") && event.target.closest("form")) hasUnsavedFormChanges = true;
+  }, true);
   document.body.insertAdjacentHTML("beforeend", `<button class="public-secretary-chat" type="button" data-public-chat-toggle aria-label="Falar com a Secretaria">☁ <span>Falar com a Secretaria</span></button><section class="public-secretary-chat-box" data-public-chat-box hidden><div class="portal-heading compact"><div><h3>Atendimento da Secretaria</h3><p class="muted">Declarações, diplomas, dúvidas e sugestões.</p></div><button class="button ghost" type="button" data-public-chat-close>Fechar</button></div><form class="contact-form" data-public-chat-form><label>Nome<input class="input" name="name" required></label><label>Contato<input class="input" name="contact" required placeholder="E-mail ou telefone"></label><label>Assunto<select class="input" name="subject"><option>Declaração</option><option>Diploma ou histórico</option><option>Dúvida</option><option>Feedback</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar para a Secretaria</button></form></section>`);
   $("[data-public-chat-toggle]")?.addEventListener("click", () => { const box = $("[data-public-chat-box]"); if (box) box.hidden = !box.hidden; });
   $("[data-public-chat-close]")?.addEventListener("click", () => { const box = $("[data-public-chat-box]"); if (box) box.hidden = true; });
-  $("[data-public-chat-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_name: String(form.get("name")).trim(), requester_role: "public", subject: `${form.get("subject")} — ${form.get("contact")}`, message: String(form.get("message")).trim(), status:"Aberto" }, "id", "Mensagem enviada à Secretaria.", { skipPortalRender:true }); if (saved) { await upsertRecord("private_notifications", { title:"Novo atendimento público", message:`${form.get("name")}: ${form.get("subject")}`, recipient_sector:"secretaria" }, "id", "", { skipPortalRender:true }); event.target.reset(); $("[data-public-chat-box]").hidden = true; } });
+  $("[data-public-chat-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_name: String(form.get("name")).trim(), requester_role: "public", subject: `${form.get("subject")} — ${form.get("contact")}`, message: String(form.get("message")).trim(), status:"Aberto" }, "id", "Responderemos o mais breve possível pelo e-mail cadastrado.", { skipPortalRender:true }); if (saved) { await upsertRecord("private_notifications", { title:"Novo atendimento público", message:`${form.get("name")}: ${form.get("subject")}`, recipient_sector:"secretaria" }, "id", "", { skipPortalRender:true }); event.target.reset(); $("[data-public-chat-box]").hidden = true; } });
   $("[data-menu-toggle]")?.addEventListener("click", () => {
     $("[data-nav-panel]")?.classList.toggle("open");
     document.body.classList.toggle("no-scroll");
@@ -3853,6 +4262,9 @@ function setupUi() {
 // ==================== INICIALIZAÇÃO ====================
 async function refreshDataInBackground() {
   if (document.hidden) return;
+  // Não recarrega/recria o painel enquanto a pessoa estiver preenchendo algo.
+  // Antes disso, o refresh de 30 segundos apagava o texto não salvo.
+  if (hasUnsavedFormChanges) return;
   const updated = await loadDataFromSupabase({ useCache: true, forceNetwork: true });
   if (!updated) return;
   if (currentPageName() === "login") renderLoginPortal();
