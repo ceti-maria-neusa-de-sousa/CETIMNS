@@ -4,7 +4,7 @@ Este módulo usa Supabase Auth e uma Edge Function. A chave `SUPABASE_SERVICE_RO
 
 ## 1. Aplicar a migração
 
-No SQL Editor do projeto Supabase, execute [supabase-workforce-module.sql](./supabase-workforce-module.sql). Ela cria perfis, escalas, ponto, tarefas, checklists, respostas e auditoria, todos protegidos por RLS para o papel `authenticated`.
+No SQL Editor do projeto Supabase, execute [supabase-workforce-module.sql](./supabase-workforce-module.sql). Ela cria perfis, escalas, tarefas, checklists, respostas e auditoria, todos protegidos por RLS para o papel `authenticated`.
 
 ## 2. Criar o primeiro diretor
 
@@ -31,6 +31,6 @@ As variáveis `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` 
 
 Não migre senhas antigas por SQL nem por JavaScript. Para cada profissional, a direção cria uma conta Auth usando e-mail e senha temporária; a pessoa deve trocar a senha no primeiro acesso. Alunos continuam no fluxo atual enquanto sua migração não for planejada separadamente.
 
-## Limite legal do ponto
+## Registro de jornada
 
-O módulo registra eventos operacionais, mas não deve ser declarado como registrador eletrônico de ponto oficial sem validação jurídica e técnica da Portaria MTP 671/2021, regras coletivas aplicáveis e requisitos de segurança do empregador.
+O site não oferece nem utiliza registro de ponto. A tabela de eventos que possa existir em instalações antigas não aparece nos painéis do portal e não deve ser usada para controle de jornada.

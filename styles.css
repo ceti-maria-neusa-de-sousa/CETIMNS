@@ -1148,7 +1148,7 @@ textarea.input {
 
 /* Checklists operacionais: leitura rápida e toque confortável em qualquer painel. */
 .sector-checklist { display: grid; gap: 16px; margin-top: 18px; padding: 22px; border: 0; border-radius: 22px; background: radial-gradient(circle at top right, #d6f6ee, transparent 34%), linear-gradient(135deg, #f8fffd, #edf6fb); box-shadow: 0 16px 35px rgb(5 74 87 / 10%); }
-.checklist-eyebrow, .time-clock-eyebrow { display: block; margin-bottom: 5px; color: #087b70; font-size: .72rem; font-weight: 900; letter-spacing: .12em; }
+.checklist-eyebrow { display: block; margin-bottom: 5px; color: #087b70; font-size: .72rem; font-weight: 900; letter-spacing: .12em; }
 .checklist-card { display: grid; gap: 14px; padding: 18px; border: 1px solid rgb(9 111 105 / 14%); border-radius: 18px; background: rgb(255 255 255 / 88%); box-shadow: 0 8px 20px rgb(10 67 82 / 7%); }
 .checklist-card-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .checklist-card-head > div:first-child { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; }
@@ -1162,9 +1162,7 @@ textarea.input {
 .checklist-item { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 10px; min-height: 54px; padding: 10px 12px; border: 1px solid #e2edf0; border-radius: 12px; background: #fff; cursor: pointer; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .checklist-item:hover { transform: translateY(-2px); border-color: #7acfc2; box-shadow: 0 7px 14px rgb(7 108 101 / 9%); }.checklist-item input { position: absolute; opacity: 0; }.checklist-check { display: grid; width: 22px; height: 22px; place-items: center; border: 2px solid #9bbdc0; border-radius: 7px; color: transparent; font-size: .8rem; font-weight: 900; }.checklist-item.is-done { border-color: #91d9b1; background: #f2fff7; }.checklist-item.is-done .checklist-check { border-color: #15965a; background: #15965a; color: #fff; }.checklist-item-number { color: #7e9da2; font-size: .76rem; font-weight: 850; }.checklist-item.is-done > span:nth-last-of-type(1) { color: #28794e; font-weight: 750; text-decoration: line-through; }.checklist-item em { color: #7b9699; font-size: .76rem; font-style: normal; }.checklist-item.is-done em { color: #16834e; }
 
-.time-clock { display: grid; gap: 16px; margin-top: 18px; padding: 22px; border: 0; border-radius: 22px; color: #fff; background: linear-gradient(130deg, #06385c, #087b80); box-shadow: 0 16px 35px rgb(5 43 70 / 22%); }.time-clock .muted { color: rgb(255 255 255 / 76%); }.time-clock-top { display: flex; justify-content: space-between; gap: 16px; }.time-clock h3 { margin: 3px 0; color: #fff; }.time-clock-eyebrow { color: #8ee7d9; }.live-clock { align-self: start; padding: 10px 12px; border: 1px solid rgb(255 255 255 / 25%); border-radius: 12px; background: rgb(0 0 0 / 14%); font: 850 1.25rem ui-monospace, monospace; }.time-line { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }.time-step { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; padding: 10px; border-radius: 12px; color: rgb(255 255 255 / 60%); background: rgb(255 255 255 / 8%); }.time-step > span { font-size: 1.1rem; }.time-step strong, .time-step small { display: block; }.time-step strong { font-size: .78rem; }.time-step small { margin-top: 3px; font-size: .7rem; }.time-step.current { outline: 1px solid #84e2d4; color: #fff; background: rgb(255 255 255 / 18%); }.time-step.done { color: #bff6d5; }.time-clock-action { justify-self: start; display: inline-flex; align-items: center; gap: 8px; border-color: #fff; background: #fff; color: #06385c; box-shadow: 0 6px 0 rgb(0 0 0 / 14%); }.time-clock-action span { font-size: 1.1rem; }
-
-@media (max-width: 680px) { .checklist-card-head, .time-clock-top { flex-direction: column; }.checklist-progress { justify-items: start; }.time-line { grid-template-columns: repeat(2, 1fr); }.checklist-item { grid-template-columns: auto auto 1fr; }.checklist-item em { grid-column: 3; }.sector-checklist, .time-clock { padding: 16px; border-radius: 17px; } }
+@media (max-width: 680px) { .checklist-card-head { flex-direction: column; }.checklist-progress { justify-items: start; }.checklist-item { grid-template-columns: auto auto 1fr; }.checklist-item em { grid-column: 3; }.sector-checklist { padding: 16px; border-radius: 17px; } }
 
 @media (max-width: 680px) { .kitchen-summary { grid-template-columns: 1fr; } .kitchen-heading { padding: 17px; } }
 
@@ -1176,11 +1174,23 @@ textarea.input {
 
 .public-secretary-chat,
 .secretary-chat-button {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  padding: 0;
   border: 0;
   background: var(--blue);
   color: var(--white);
   box-shadow: var(--shadow);
   cursor: pointer;
+  border-radius: 50%;
+}
+
+.public-secretary-chat svg,
+.secretary-chat-button svg {
+  width: 27px;
+  height: 27px;
 }
 
 .public-secretary-chat {
@@ -1188,12 +1198,6 @@ textarea.input {
   right: 18px;
   bottom: 18px;
   z-index: 70;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 13px 16px;
-  border-radius: 999px;
-  font-weight: 800;
 }
 
 .secretary-chat-button {
@@ -1201,11 +1205,10 @@ textarea.input {
   right: 18px;
   bottom: 80px;
   z-index: 71;
-  border-radius: 999px;
-  padding: 10px 13px;
 }
 
-.public-secretary-chat-box {
+.public-secretary-chat-box,
+.secretary-chat-box {
   position: fixed;
   right: 18px;
   bottom: 78px;
@@ -1219,6 +1222,35 @@ textarea.input {
   box-shadow: var(--shadow);
   animation: notification-open .22s ease-out both;
 }
+
+.secretary-chat-box {
+  bottom: 142px;
+  max-height: calc(100vh - 174px);
+}
+
+.support-subject { margin: 0 0 10px; color: var(--muted); font-size: .88rem; }
+.support-message-list { display: grid; gap: 9px; max-height: 330px; overflow-y: auto; padding: 4px 2px 12px; }
+.support-message { display: grid; gap: 4px; max-width: 88%; justify-self: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; background: var(--surface); overflow-wrap: anywhere; }
+.support-message.own { justify-self: end; border-color: #b9dce8; border-radius: 14px 14px 4px 14px; background: #edf8fc; }
+.support-message.automated { border-color: #bfe6dc; background: #effbf7; }
+.support-message strong { color: var(--blue); font-size: .78rem; }
+.support-message p { margin: 0; white-space: pre-wrap; }
+.support-message time { justify-self: end; color: var(--muted); font-size: .7rem; }
+.support-attachment { display: inline-block; color: var(--blue); font-size: .84rem; font-weight: 750; overflow-wrap: anywhere; }
+.support-composer { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.support-composer .input { min-width: 0; }
+.support-composer textarea { resize: vertical; }
+.support-composer .button { justify-self: end; }
+.support-file-label { display: grid; gap: 5px; color: var(--muted); font-size: .84rem; }
+.support-file-label input { font-size: .78rem; }
+.support-closed-note { margin: 10px 0; color: var(--muted); font-size: .88rem; }
+.support-thread-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.support-thread-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.support-thread-card > header .muted { margin: 5px 0 0; }
+.support-conversation-list { display: grid; gap: 14px; margin-top: 14px; }
+.support-legacy-attachment { padding: 8px 0; }
+.public-secretary-chat-box [data-public-chat-content],
+.secretary-chat-box [data-portal-support-content] { display: grid; gap: 10px; }
 
 @keyframes notification-open {
   from { opacity: 0; transform: translateY(-10px) scale(.98); }
@@ -1403,6 +1435,11 @@ textarea.input {
   text-align: center;
   padding: 6px 8px;
 }
+
+.fixed-grade-hint { margin: 0 0 10px; font-size: .88rem; }
+.grade-score-input { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, .65fr); align-items: center; gap: 2px; min-width: 0; }
+.grade-score-input .input { width: 100%; min-width: 0; padding: 6px 3px; text-align: center; }
+.grade-score-separator { color: var(--ink); font-weight: 900; }
 
 .recovery-slot {
   display: grid;

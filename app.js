@@ -24,21 +24,18 @@ let state = {
   staff: [],
   notifications: [],
   notificationDismissals: [],
-  workforceProfiles: [],
-  workSchedules: [],
-  timeEntries: [],
   workTasks: [],
   workTaskAssignees: [],
   sectorChecklists: [],
   sectorChecklistItems: [],
   sectorChecklistCompletions: [],
   sectorChecklistAssignees: [],
-  attendanceTimeEntries: [],
   sectorRecords: [],
   kitchenMenu: [],
   kitchenStock: [],
   dietaryRestrictions: [],
   supportRequests: [],
+  supportMessages: [],
   studentDocuments: [],
   teacherAssignments: [],
   grades: [],
@@ -299,7 +296,7 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
       const request = () => safeTableSelect(table, transform, optional);
       return useCache ? fetchWithCache(table, "all", request, { force: forceNetwork }) : request();
     };
-    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workforceProfilesData, workSchedulesData, timeEntriesData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, attendanceTimeEntriesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
+    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, supportMessagesData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
       loadTable("classes"),
       loadTable("subjects"),
       loadTable("students"),
@@ -307,21 +304,18 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
       loadTable("staff", undefined, true),
       loadTable("private_notifications", undefined, true),
       loadTable("notification_dismissals", undefined, true),
-      loadTable("workforce_profiles", undefined, true),
-      loadTable("work_schedules", undefined, true),
-      loadTable("time_entries", undefined, true),
       loadTable("work_tasks", undefined, true),
       loadTable("work_task_assignees", undefined, true),
       loadTable("sector_checklists", undefined, true),
       loadTable("sector_checklist_items", undefined, true),
       loadTable("sector_checklist_completions", undefined, true),
       loadTable("sector_checklist_assignees", undefined, true),
-      loadTable("attendance_time_entries", undefined, true),
       loadTable("sector_records", undefined, true),
       loadTable("kitchen_menu", undefined, true),
       loadTable("kitchen_stock", undefined, true),
       loadTable("dietary_restrictions", undefined, true),
       loadTable("support_requests", undefined, true),
+      loadTable("support_messages", undefined, true),
       loadTable("student_documents", undefined, true),
       loadTable("teacher_assignments", undefined, true),
       loadTable("grades"),
@@ -347,21 +341,18 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
     state.staff = sortPeopleByName(staffData || []);
     state.notifications = notificationsData || [];
     state.notificationDismissals = notificationDismissalsData || [];
-    state.workforceProfiles = workforceProfilesData || [];
-    state.workSchedules = workSchedulesData || [];
-    state.timeEntries = timeEntriesData || [];
     state.workTasks = workTasksData || [];
     state.workTaskAssignees = workTaskAssigneesData || [];
     state.sectorChecklists = sectorChecklistsData || [];
     state.sectorChecklistItems = sectorChecklistItemsData || [];
     state.sectorChecklistCompletions = sectorChecklistCompletionsData || [];
     state.sectorChecklistAssignees = sectorChecklistAssigneesData || [];
-    state.attendanceTimeEntries = attendanceTimeEntriesData || [];
     state.sectorRecords = sectorRecordsData || [];
     state.kitchenMenu = kitchenMenuData || [];
     state.kitchenStock = kitchenStockData || [];
     state.dietaryRestrictions = dietaryRestrictionsData || [];
     state.supportRequests = supportRequestsData || [];
+    state.supportMessages = supportMessagesData || [];
     state.studentDocuments = studentDocumentsData || [];
     state.teacherAssignments = (teacherAssignmentsData || []).map(normalizeTeacherAssignmentData);
     state.grades = (gradesData || []).map(normalizeGradeData);
@@ -1288,6 +1279,7 @@ function renderTeacherPanel(session) {
         </div>
       </div>
       <form data-teacher-grade-form>
+        <p class="muted fixed-grade-hint">Digite somente os algarismos; o ponto decimal já aparece fixo entre os campos.</p>
         <div class="gradebook-table">
           <div class="gradebook-head">
             <span>Estudante</span><span>N1</span><span>N2</span><span>N3</span><span>Média</span><span>Recuperação</span><span>Situação</span>
@@ -1362,9 +1354,21 @@ function renderTeacherPanel(session) {
   $("[data-print-request-form]").addEventListener("submit", async (event) => {
     event.preventDefault(); const form = new FormData(event.target); const file = form.get("file");
     if (!file?.size) return toast("Selecione o arquivo para impressão.");
-    const [attachment] = await readAttachments([file]);
-    const saved = await upsertRecord("support_requests", { requester_id: session.id, requester_name: teacher.name, requester_role: "teacher", subject: "Pedido de impressão", message: String(form.get("details") || "Arquivo enviado para impressão."), attachment, status: "Aberto" }, "id", "Arquivo enviado à Secretaria.", { skipPortalRender: true });
-    if (saved) { await upsertRecord("private_notifications", { title: "Pedido de impressão", message: `${teacher.name} enviou um arquivo para impressão.`, recipient_sector: "secretaria" }, "id", "", { skipPortalRender: true }); event.target.reset(); }
+    try {
+      const [attachment] = await readAttachments([file]);
+      const saved = await startSupportConversation({
+        requesterId: String(session.id),
+        requesterName: teacher.name,
+        requesterRole: "teacher",
+        subject: "Pedido de impressão",
+        body: String(form.get("details") || "Arquivo enviado para impressão."),
+        attachment
+      });
+      if (saved) event.target.reset();
+    } catch (error) {
+      console.error("Erro ao enviar arquivo para impressão:", error);
+      toast(error.message || "Não foi possível enviar o arquivo para impressão.");
+    }
   });
 
   setupTeacherGradeLivePreview(teacher, currentTeacherTrimester, activeSubject, activeClass);
@@ -2042,34 +2046,6 @@ function checklistSectorFor(session) {
   return session.sector || "";
 }
 
-function renderTimeClock(session) {
-  // Professores não usam ponto: seus horários variam conforme as aulas.
-  if (session.role !== "staff") return "";
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-  const entries = state.attendanceTimeEntries.filter((item) => idsEqual(item.user_id, session.id) && item.user_role === session.role && String(item.recorded_at || "").slice(0, 10) === today).sort((a, b) => String(a.recorded_at).localeCompare(String(b.recorded_at)));
-  const flow = [{ type: "entry", label: "Registrar entrada", icon: "↗" }, { type: "exit", label: "Registrar saída", icon: "↘" }];
-  const next = entries.some((entry) => entry.event_type === "entry") && !entries.some((entry) => entry.event_type === "exit") ? flow[1] : flow[0];
-  const time = (entry) => new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(new Date(entry.recorded_at));
-  return `<section class="panel time-clock" data-time-clock><div class="time-clock-top"><div><span class="time-clock-eyebrow">PONTO ELETRÔNICO</span><h3>Minha jornada de hoje</h3><p class="muted">Entrada: 7:30–8:30 · Saída: 14:25–15:00.</p></div><div class="live-clock" data-live-clock>--:--</div></div><div class="time-line">${flow.map((step, index) => { const entry = entries[index]; return `<div class="time-step ${entry ? "done" : index === entries.length ? "current" : ""}"><span>${step.icon}</span><div><strong>${step.label.replace("Registrar ", "")}</strong><small>${entry ? time(entry) : index === entries.length ? "Próximo registro" : "Aguardando"}</small></div></div>`; }).join("")}</div><button class="button primary time-clock-action" type="button" data-time-clock-action="${next.type}"><span>${next.icon}</span>${next.label}</button></section>`;
-}
-
-function bindTimeClock(session) {
-  const clock = $("[data-live-clock]");
-  if (clock) {
-    const update = () => { clock.textContent = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/Sao_Paulo" }).format(new Date()); };
-    update(); setInterval(update, 1000);
-  }
-  $("[data-time-clock-action]")?.addEventListener("click", async (event) => {
-    const button = event.currentTarget; button.disabled = true;
-    const now = new Date(); const minutes = now.getHours() * 60 + now.getMinutes();
-    const allowed = button.dataset.timeClockAction === "entry" ? minutes >= 450 && minutes <= 510 : minutes >= 865 && minutes <= 900;
-    if (!allowed) { button.disabled = false; return toast(button.dataset.timeClockAction === "entry" ? "A entrada é registrada somente entre 7:30 e 8:30." : "A saída é registrada somente entre 14:25 e 15:00."); }
-    const { data, error } = await supabase.from("attendance_time_entries").insert({ user_id: String(session.id), user_role: session.role, event_type: button.dataset.timeClockAction }).select().single();
-    if (error) { console.error("Erro ao registrar ponto:", error); button.disabled = false; return toast("Não foi possível registrar o ponto. Execute novamente a migração do checklist no Supabase."); }
-    state.attendanceTimeEntries.push(data); clearCache("attendance_time_entries"); toast("Ponto registrado com sucesso."); renderLoginPortal();
-  });
-}
-
 function renderSectorChecklists(session) {
   const sector = checklistSectorFor(session);
   const weekday = new Date().getDay();
@@ -2078,9 +2054,8 @@ function renderSectorChecklists(session) {
     const assigned = state.sectorChecklistAssignees.filter((assignment) => idsEqual(assignment.checklist_id, item.id));
     return item.active !== false && item.sector === sector && days.includes(weekday) && (!assigned.length || assigned.some((assignment) => idsEqual(assignment.user_id, session.id) && assignment.user_role === session.role));
   });
-  const timeClock = renderTimeClock(session);
-  if (!checklists.length) return timeClock;
-  return `${timeClock}<section class="panel sector-checklist"><div class="portal-heading compact"><div><span class="checklist-eyebrow">ROTINA INTELIGENTE</span><h3>Checklist do setor</h3><p class="muted">Marque os itens realizados. O andamento fica visível para a direção.</p></div></div>${checklists.map((checklist) => {
+  if (!checklists.length) return "";
+  return `<section class="panel sector-checklist"><div class="portal-heading compact"><div><span class="checklist-eyebrow">ROTINA INTELIGENTE</span><h3>Checklist do setor</h3><p class="muted">Marque os itens realizados. O andamento fica visível para a direção.</p></div></div>${checklists.map((checklist) => {
     const items = state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id)).sort((a, b) => Number(a.position) - Number(b.position));
     const completedOn = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
     const completed = new Set(state.sectorChecklistCompletions.filter((item) => idsEqual(item.checklist_id, checklist.id) && idsEqual(item.user_id, session.id) && item.user_role === session.role && item.completed && item.completed_on === completedOn).map((item) => String(item.item_id)));
@@ -2091,7 +2066,6 @@ function renderSectorChecklists(session) {
 }
 
 function bindSectorChecklists(session) {
-  bindTimeClock(session);
   $$('[data-checklist-item]').forEach((input) => input.addEventListener("change", async () => {
     const completedOn = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
     const existing = state.sectorChecklistCompletions.find((item) => idsEqual(item.item_id, input.dataset.checklistItem) && idsEqual(item.checklist_id, input.dataset.checklistId) && idsEqual(item.user_id, session.id) && item.user_role === session.role && item.completed_on === completedOn);
@@ -2188,24 +2162,243 @@ document.addEventListener("click", (event) => {
 
 function secretaryChatButton(session) {
   if (!session || !["student", "teacher"].includes(session.role)) return "";
-  return `<button class="secretary-chat-button" type="button" data-secretary-chat title="Falar com a Secretaria">☁<span>Secretaria</span></button>`;
+  return `<button class="secretary-chat-button" type="button" data-secretary-chat title="Falar com a Secretaria" aria-label="Falar com a Secretaria">${secretaryChatIcon()}</button>`;
 }
+
+function secretaryChatIcon() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-5.2A7.5 7.5 0 1 1 20 11.5Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/><path d="M8 11h.01M12 11h.01M16 11h.01" stroke="currentColor" stroke-linecap="round" stroke-width="2.5"/></svg>`;
+}
+
+function supportMessagesFor(requestId) {
+  return state.supportMessages
+    .filter((message) => idsEqual(message.support_request_id, requestId))
+    .sort((left, right) => String(left.created_at || "").localeCompare(String(right.created_at || "")));
+}
+
+function latestSupportRequest(requesterId) {
+  return state.supportRequests
+    .filter((request) => idsEqual(request.requester_id, requesterId))
+    .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))[0] || null;
+}
+
+function activeSupportRequest(requesterId) {
+  return state.supportRequests
+    .filter((request) => idsEqual(request.requester_id, requesterId) && String(request.status || "").toLowerCase() !== "encerrado")
+    .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))[0] || null;
+}
+
+function supportAttachmentLink(file) {
+  if (!file?.data) return "";
+  return `<a class="support-attachment" href="${escapeHtml(file.data)}" download="${escapeHtml(file.name || "documento")}">Baixar ${escapeHtml(file.name || "documento")}</a>`;
+}
+
+function supportMessageList(request, viewerRole) {
+  let messages = supportMessagesFor(request.id);
+  if (!messages.length) {
+    messages = [{ sender_role: request.requester_role || "public", sender_name: request.requester_name, body: request.message, attachment: request.attachment, created_at: request.created_at }];
+    if (request.reply) messages.push({ sender_role: "secretaria", sender_name: "Secretaria", body: request.reply });
+  }
+  return `<div class="support-message-list">${messages.map((message) => {
+    const own = viewerRole === "secretaria" ? message.sender_role === "secretaria" : message.sender_role !== "secretaria" && message.sender_role !== "assistant";
+    const sender = message.sender_role === "assistant" ? "Assistente virtual" : message.sender_name || (message.sender_role === "secretaria" ? "Secretaria" : request.requester_name);
+    return `<article class="support-message ${own ? "own" : ""} ${message.sender_role === "assistant" ? "automated" : ""}"><strong>${escapeHtml(sender)}</strong><p>${escapeHtml(message.body || "")}</p>${supportAttachmentLink(message.attachment)}<time>${message.created_at ? escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(message.created_at))) : ""}</time></article>`;
+  }).join("")}</div>`;
+}
+
+function greetingResponse(message, firstMessage) {
+  const normalized = normalizeLabel(message).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const isGreeting = /^(oi|ola|bom dia|boa tarde|boa noite|ol[aá]|oi,? tudo bem)[!.?\s]*$/.test(normalized);
+  if (isGreeting) return "Olá! Estes são alguns serviços da Secretaria: declarações, diplomas e históricos, matrículas e rematrículas, frequência e turmas, e outros atendimentos. Em breve nossa equipe vai lhe responder.";
+  return firstMessage ? "Recebemos sua mensagem. Em breve nossa equipe vai lhe responder." : "";
+}
+
+async function insertSupportRequest(payload) {
+  const { data, error } = await supabase.from("support_requests").insert(payload).select().single();
+  if (error) {
+    console.error("Erro ao abrir atendimento:", error);
+    toast(`Não foi possível abrir o atendimento: ${error.message || "tente novamente."}`);
+    return false;
+  }
+  state.supportRequests.push(data);
+  clearCache("support_requests");
+  return data;
+}
+
+async function insertSupportMessage(request, message, sender) {
+  const payload = {
+    support_request_id: request.id,
+    sender_role: sender.role,
+    sender_id: sender.id || null,
+    sender_name: sender.name,
+    body: message.body,
+    attachment: message.attachment || null
+  };
+  const { data, error } = await supabase.from("support_messages").insert(payload).select().single();
+  if (error) {
+    console.error("Erro ao enviar mensagem do atendimento:", error);
+    toast(`Não foi possível enviar a mensagem: ${error.message || "tente novamente."}`);
+    return false;
+  }
+  state.supportMessages.push(data);
+  clearCache("support_messages");
+  return data;
+}
+
+async function sendSupportMessage(request, message, sender, { firstMessage = false } = {}) {
+  if (!firstMessage) {
+    const { data: currentRequest, error: requestError } = await supabase
+      .from("support_requests")
+      .select("status")
+      .eq("id", request.id)
+      .maybeSingle();
+    if (requestError) {
+      console.error("Erro ao verificar o status do atendimento:", requestError);
+      toast(`Não foi possível confirmar se o atendimento está aberto: ${requestError.message || "tente novamente."}`);
+      return false;
+    }
+    if (!currentRequest) {
+      toast("Este atendimento não foi encontrado. Atualize a página antes de enviar outra mensagem.");
+      return false;
+    }
+    if (String(currentRequest.status || "").toLowerCase() === "encerrado") {
+      Object.assign(request, currentRequest);
+      toast("Este assunto já foi encerrado. Inicie uma nova conversa.");
+      return false;
+    }
+  }
+
+  const saved = await insertSupportMessage(request, message, sender);
+  if (!saved) return false;
+
+  const automaticReply = sender.role === "secretaria" ? "" : greetingResponse(message.body, firstMessage);
+  if (automaticReply) {
+    const automated = await insertSupportMessage(request, { body: automaticReply }, { role: "assistant", name: "Assistente virtual" });
+    if (!automated) return false;
+  }
+  const status = sender.role === "secretaria" ? "Respondido" : "Aberto";
+  const { data, error } = await supabase.from("support_requests").update({ status, closed_at: null }).eq("id", request.id).select().single();
+  if (error) {
+    console.error("Erro ao atualizar o atendimento:", error);
+    toast(`A mensagem foi enviada, mas o status não foi atualizado: ${error.message || "tente novamente."}`);
+  } else {
+    Object.assign(request, data);
+    clearCache("support_requests");
+  }
+  if (sender.role === "secretaria") {
+    await upsertRecord("private_notifications", {
+      title: "Resposta da Secretaria",
+      message: message.body || "A Secretaria enviou um documento no atendimento.",
+      recipient_id: request.requester_id
+    }, "id", "", { skipPortalRender: true });
+  }
+  return true;
+}
+
+async function startSupportConversation({ requesterId, requesterName, requesterRole, contact = "", subject, body, attachment = null }) {
+  const request = await insertSupportRequest({
+    requester_id: requesterId,
+    requester_name: requesterName,
+    requester_role: requesterRole,
+    requester_contact: contact || null,
+    subject,
+    message: body,
+    attachment: null,
+    status: "Aberto"
+  });
+  if (!request) return false;
+  const sent = await sendSupportMessage(request, { body, attachment }, { role: requesterRole, id: requesterId, name: requesterName }, { firstMessage: true });
+  if (!sent) return false;
+  await upsertRecord("private_notifications", {
+    title: "Novo atendimento",
+    message: `${requesterName}: ${subject}`,
+    recipient_sector: "secretaria"
+  }, "id", "", { skipPortalRender: true });
+  return request;
+}
+
+function supportComposer(request, viewerRole, requesterId, requesterName, requesterRole, contact = "") {
+  const isNew = !request;
+  return `<form class="support-composer" data-support-composer${request ? ` data-support-request="${escapeHtml(request.id)}"` : ""} data-support-role="${escapeHtml(viewerRole)}" data-requester-id="${escapeHtml(requesterId)}" data-requester-name="${escapeHtml(requesterName)}" data-requester-role="${escapeHtml(requesterRole)}" data-requester-contact="${escapeHtml(contact)}">
+    ${isNew ? `<label>Assunto<select class="input" name="subject"><option>Dúvida</option><option>Declaração</option><option>Diploma ou histórico</option><option>Matrícula ou rematrícula</option><option>Pedido de impressão</option><option>Outro atendimento</option></select></label>` : ""}
+    <label class="sr-only" for="support-message-${escapeHtml(request?.id || "new")}">Mensagem</label><textarea class="input" id="support-message-${escapeHtml(request?.id || "new")}" name="message" rows="2" placeholder="Digite sua mensagem..."></textarea>
+    <label class="support-file-label">Anexar documento<input class="input" name="file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*"></label>
+    <button class="button primary" type="submit">Enviar</button>
+  </form>`;
+}
+
+function bindSupportComposer(root, afterSend = () => {}) {
+  $$("[data-support-composer]", root).forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = $("button[type=submit]", form);
+    submit.disabled = true;
+    try {
+      const values = new FormData(form);
+      const body = String(values.get("message") || "").trim();
+      const file = values.get("file");
+      if (!body && !file?.size) return toast("Escreva uma mensagem ou selecione um documento.");
+      const attachment = file?.size ? (await readAttachments([file]))[0] : null;
+      const requestId = form.dataset.supportRequest;
+      let saved;
+      if (requestId) {
+        const request = state.supportRequests.find((item) => idsEqual(item.id, requestId));
+        if (!request) return toast("Este atendimento não foi encontrado. Atualize a página.");
+        saved = await sendSupportMessage(request, { body, attachment }, {
+          role: form.dataset.supportRole,
+          id: form.dataset.requesterId,
+          name: form.dataset.requesterName
+        });
+      } else {
+        saved = await startSupportConversation({
+          requesterId: form.dataset.requesterId,
+          requesterName: form.dataset.requesterName,
+          requesterRole: form.dataset.requesterRole,
+          contact: form.dataset.requesterContact,
+          subject: String(values.get("subject") || "Atendimento"),
+          body,
+          attachment
+        });
+      }
+      if (saved) {
+        hasUnsavedFormChanges = false;
+        afterSend();
+      } else if (requestId && String(state.supportRequests.find((item) => idsEqual(item.id, requestId))?.status || "").toLowerCase() === "encerrado") {
+        hasUnsavedFormChanges = false;
+        afterSend();
+      }
+    } catch (error) {
+      console.error("Erro ao preparar mensagem ou documento:", error);
+      toast(error.message || "Não foi possível preparar o envio.");
+    } finally {
+      if (submit.isConnected) submit.disabled = false;
+    }
+  }));
+}
+
 function bindSecretaryChat(session) {
   $("[data-secretary-chat]")?.addEventListener("click", () => {
     const root = $("[data-login-root]");
-    if ($("[data-secretary-chat-box]", root)) return;
-    root.insertAdjacentHTML("beforeend", `<section class="panel secretary-chat-box" data-secretary-chat-box><div class="portal-heading compact"><h3>Falar com a Secretaria</h3><button class="button ghost" data-chat-close>Fechar</button></div><form class="contact-form" data-secretary-chat-form><label>Assunto<select class="input" name="subject"><option>Dúvida</option><option>Pedido de impressão</option><option>Documento</option><option>Outro atendimento</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar</button></form></section>`);
-    $("[data-chat-close]", root).addEventListener("click", () => $("[data-secretary-chat-box]", root)?.remove());
-    $("[data-secretary-chat-form]", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_id: session.id, requester_name: session.name, requester_role: session.role, subject: form.get("subject"), message: form.get("message"), status: "Aberto" }, "id", "Responderemos o mais breve possível pelo e-mail cadastrado.", { skipPortalRender: true }); if (saved) { await upsertRecord("private_notifications", { title: "Novo atendimento", message: `${session.name}: ${form.get("subject")}`, recipient_sector: "secretaria" }, "id", "", { skipPortalRender: true }); $("[data-secretary-chat-box]", root)?.remove(); } });
+    if ($("[data-secretary-chat-box]", root)) {
+      const box = $("[data-secretary-chat-box]", root);
+      box.hidden = !box.hidden;
+      if (!box.hidden) renderPortalSupportChat(session, root);
+      return;
+    }
+    root.insertAdjacentHTML("beforeend", `<section class="panel secretary-chat-box" data-secretary-chat-box><div class="portal-heading compact"><h3>Falar com a Secretaria</h3><button class="button ghost" type="button" data-chat-close aria-label="Fechar janela do chat">×</button></div><div data-portal-support-content></div></section>`);
+    $("[data-chat-close]", root).addEventListener("click", () => { $("[data-secretary-chat-box]", root).hidden = true; });
+    renderPortalSupportChat(session, root);
   });
 }
 
-function downloadAttachment(file) {
-  if (!file?.data) return;
-  const link = document.createElement("a");
-  link.href = file.data;
-  link.download = file.name || "arquivo";
-  document.body.append(link); link.click(); link.remove();
+function renderPortalSupportChat(session, root = $("[data-login-root]")) {
+  const content = $("[data-portal-support-content]", root);
+  const request = activeSupportRequest(String(session.id));
+  if (request) {
+    content.innerHTML = `<p class="support-subject"><strong>${escapeHtml(request.subject)}</strong> · ${escapeHtml(request.status)}</p>${supportMessageList(request, session.role)}${supportComposer(request, session.role, String(session.id), session.name, session.role)}`;
+  } else {
+    const latest = latestSupportRequest(String(session.id));
+    content.innerHTML = `${latest ? `<p class="support-closed-note">Este assunto foi encerrado. Inicie uma nova conversa se precisar.</p>` : `<p class="muted">Nossa equipe da Secretaria responderá por aqui.</p>`}${supportComposer(null, session.role, String(session.id), session.name, session.role)}`;
+  }
+  bindSupportComposer(content, () => renderPortalSupportChat(session, root));
 }
 
 function renderStaffPanel(session) {
@@ -2247,7 +2440,7 @@ function renderStaffPanel(session) {
 function renderSecretaryPanel(session, employee) {
   const root = $("[data-login-root]");
   const requests = state.supportRequests.slice().sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-  root.innerHTML = `<div class="portal-heading"><div><h2>Secretaria Escolar: ${escapeHtml(employee.name)}</h2><p class="muted">Atendimento, documentos e cadastros escolares.</p></div><div class="row-actions">${notificationBell(session)}${passwordChangeButton(session)}${requests.some((item) => item.attachment?.data) ? '<button class="button ghost" data-download-print>Baixar último arquivo</button>' : ''}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="active" data-secretary-tab="requests">Atendimentos</button><button data-secretary-tab="people">Escola</button><button data-secretary-tab="documents">Documentos</button></div><div data-secretary-content></div>`;
+  root.innerHTML = `<div class="portal-heading"><div><h2>Secretaria Escolar: ${escapeHtml(employee.name)}</h2><p class="muted">Atendimentos, documentos e cadastros escolares.</p></div><div class="row-actions">${notificationBell(session)}${passwordChangeButton(session)}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="active" data-secretary-tab="requests">Atendimentos</button><button data-secretary-tab="people">Escola</button><button data-secretary-tab="documents">Documentos</button></div><div data-secretary-content></div>`;
 
   root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
   bindSectorChecklists(session);
@@ -2278,26 +2471,27 @@ function renderSecretaryPanel(session, employee) {
       return;
     }
 
-    content.innerHTML = `<section class="panel"><h3>Solicitações recebidas</h3><div class="list-view">${requests.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.message)}</p>${item.reply ? `<p><strong>Resposta:</strong> ${escapeHtml(item.reply)}</p>` : `<button class="button ghost" data-reply-id="${escapeHtml(item.id)}">Responder</button>`}</div><button class="button danger" type="button" data-request-delete="${escapeHtml(item.id)}">Apagar</button></article>`).join("") || emptyState("Nenhum atendimento.")}</div></section>`;
-    $$("[data-reply-id]").forEach((button) => button.addEventListener("click", async () => {
-      const reply = window.prompt("Resposta para a solicitação:");
-      const item = requests.find((request) => idsEqual(request.id, button.dataset.replyId));
-      if (!reply?.trim() || !item) return;
-      await upsertRecord("support_requests", { ...item, reply: reply.trim(), status: "Respondido" }, "id", "Resposta enviada.");
-      await upsertRecord("private_notifications", { title: "Resposta da Secretaria", message: reply.trim(), recipient_id: item.requester_id }, "id", "", { skipPortalRender: true });
+    content.innerHTML = `<section class="panel"><h3>Conversas com a comunidade</h3><div class="support-conversation-list">${requests.map((item) => {
+      const isClosed = String(item.status || "").toLowerCase() === "encerrado";
+      const legacyFile = item.attachment?.data ? supportAttachmentLink(item.attachment) : "";
+      return `<article class="support-thread-card"><header><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.requester_role || "público")}${item.requester_contact ? ` · ${escapeHtml(item.requester_contact)}` : ""} · ${escapeHtml(item.status || "Aberto")}</p></div>${isClosed ? `<span class="badge">Encerrado</span>` : `<button class="button ghost" type="button" data-support-close="${escapeHtml(item.id)}">Encerrar assunto</button>`}</header>${legacyFile ? `<div class="support-legacy-attachment">${legacyFile}</div>` : ""}${supportMessageList(item, "secretaria")}${isClosed ? `<p class="support-closed-note">Este assunto foi encerrado.</p>` : supportComposer(item, "secretaria", String(session.id), employee.name, "secretaria")}</article>`;
+    }).join("") || emptyState("Nenhum atendimento recebido.")}</div></section>`;
+    bindSupportComposer(content, () => show("requests"));
+    $$("[data-support-close]", content).forEach((button) => button.addEventListener("click", async () => {
+      const item = requests.find((request) => idsEqual(request.id, button.dataset.supportClose));
+      if (!item || !window.confirm(`Encerrar o assunto "${item.subject}" de ${item.requester_name}?`)) return;
+      const { data, error } = await supabase.from("support_requests").update({ status: "Encerrado", closed_at: new Date().toISOString() }).eq("id", item.id).select().single();
+      if (error) {
+        console.error("Erro ao encerrar atendimento:", error);
+        return toast(`Não foi possível encerrar o atendimento: ${error.message || "tente novamente."}`);
+      }
+      Object.assign(item, data);
+      clearCache("support_requests");
+      toast("Assunto encerrado.");
       show("requests");
-    }));
-    $$("[data-request-delete]").forEach((button) => button.addEventListener("click", async () => {
-      const item = requests.find((request) => idsEqual(request.id, button.dataset.requestDelete));
-      if (!item || !window.confirm(`Apagar o atendimento de ${item.requester_name}?`)) return;
-      await deleteRecord("support_requests", "id", item.id, "Atendimento removido.");
     }));
   };
 
-  $("[data-download-print]")?.addEventListener("click", () => {
-    const item = requests.find((request) => request.attachment?.data);
-    if (item) downloadAttachment(item.attachment);
-  });
   $$("[data-secretary-tab]").forEach((button) => button.addEventListener("click", () => show(button.dataset.secretaryTab)));
   $("[data-logout]").addEventListener("click", () => { clearSession(); renderLoginPortal(); });
   bindPasswordChange(session);
@@ -3325,13 +3519,6 @@ function renderStudentsAdmin(content) {
 }
 
 function renderDirectorAdmin(content) {
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
-  const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
-  const currentMinutes = Number(nowParts.find((part) => part.type === "hour")?.value || 0) * 60 + Number(nowParts.find((part) => part.type === "minute")?.value || 0);
-  const attendanceAlerts = state.staff.filter((person) => {
-    const entries = state.attendanceTimeEntries.filter((entry) => idsEqual(entry.user_id, person.id) && entry.user_role === "staff" && String(entry.recorded_at || "").slice(0, 10) === today);
-    return (currentMinutes > 510 && !entries.some((entry) => entry.event_type === "entry")) || (currentMinutes > 900 && !entries.some((entry) => entry.event_type === "exit"));
-  });
   const checklistToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const weekday = new Date().getDay();
   const checklistTracking = state.sectorChecklists.filter((item) => item.active !== false && (Array.isArray(item.weekdays) ? item.weekdays : [0,1,2,3,4,5,6]).includes(weekday)).flatMap((checklist) => {
@@ -3342,10 +3529,6 @@ function renderDirectorAdmin(content) {
       return { checklist, items, done, person };
     });
   });
-  const todayEntries = state.timeEntries.filter((entry) => String(entry.recorded_at || "").slice(0, 10) === today);
-  const profiles = state.workforceProfiles;
-  const scheduledToday = profiles.filter((profile) => state.workSchedules.some((schedule) => schedule.profile_id === profile.auth_user_id && Number(schedule.weekday) === new Date(`${today}T12:00:00`).getDay()));
-  const present = new Set(todayEntries.filter((entry) => entry.event_type === "entry").map((entry) => entry.profile_id));
   const activeTasks = state.workTasks.filter((task) => task.status === "published");
   const assignments = state.workTaskAssignees.filter((item) => activeTasks.some((task) => idsEqual(task.id, item.task_id)));
   const completed = assignments.filter((item) => item.status === "completed");
@@ -3355,26 +3538,17 @@ function renderDirectorAdmin(content) {
     return task?.due_at && new Date(task.due_at) < new Date();
   });
   const pendingNotices = state.notifications.filter((item) => item.recipient_role === "all_admins" || item.recipient_role === "all_school").slice(-6).reverse();
-  const canReadWorkforce = profiles.length || state.workSchedules.length || state.workTasks.length || state.timeEntries.length;
-  const displayName = (profileId) => profiles.find((profile) => idsEqual(profile.auth_user_id, profileId))?.display_name || "Profissional";
-  const sector = (profileId) => profiles.find((profile) => idsEqual(profile.auth_user_id, profileId))?.sector || "—";
   content.innerHTML = `
     <div class="director-shell">
-      <div class="director-hero"><div><span>Painel de gestão</span><h2>Diretor</h2><p>Acompanhe presença, checklists e pendências da equipe em um só lugar.</p></div><button class="button primary" type="button" data-director-notifications>Ver avisos</button></div>
-      ${!canReadWorkforce ? `<section class="panel director-access-note"><h3>Ative a gestão segura da equipe</h3><p>O módulo foi instalado no Supabase. Vincule este administrador ao perfil <strong>director</strong> no Supabase Auth para visualizar e administrar pontos e checklists protegidos.</p></section>` : ""}
+      <div class="director-hero"><div><span>Painel de gestão</span><h2>Diretor</h2><p>Acompanhe checklists e pendências da equipe em um só lugar.</p></div><button class="button primary" type="button" data-director-notifications>Ver avisos</button></div>
       <div class="director-kpis">
-        ${miniStat("Equipe escalada hoje", scheduledToday.length)}
-        ${miniStat("Presentes", present.size)}
-        ${miniStat("Sem entrada", Math.max(0, scheduledToday.filter((profile) => !present.has(profile.auth_user_id)).length))}
         ${miniStat("Checklists concluídos", completed.length)}
         ${miniStat("Checklists pendentes", pending.length)}
         ${miniStat("Vencidos", overdue.length)}
       </div>
       <div class="director-grid">
         <section class="panel"><div class="portal-heading compact"><div><h3>Checklists de hoje</h3><p class="muted">Acompanhamento por local e responsável.</p></div></div><div class="list-view">${checklistTracking.map(({ checklist, items, done, person }) => `<article class="list-item director-row"><div><strong>${escapeHtml(checklist.title)}</strong><p class="muted">${escapeHtml(checklist.location || checklist.sector)} · ${escapeHtml(person?.name || "Responsável")}</p></div><span class="badge ${items.length && done === items.length ? "success" : "warning"}">${items.length && done === items.length ? "Concluído" : `${done}/${items.length} itens`}</span></article>`).join("") || emptyState("Não há checklists escalados para hoje.")}</div></section>
-        <section class="panel"><div class="portal-heading compact"><div><h3>Alertas do ponto</h3><p class="muted">Avisos automáticos após os prazos de registro.</p></div></div><div class="list-view">${attendanceAlerts.map((person) => `<article class="list-item director-row"><div><strong>${escapeHtml(person.name)}</strong><p class="muted">${escapeHtml(sectorLabels[person.sector] || person.sector)}</p></div><span class="badge warning">${currentMinutes > 900 ? "Saída sem registro" : "Entrada sem registro"}</span></article>`).join("") || emptyState("Nenhum alerta de ponto neste momento.")}</div></section>
-        <section class="panel"><div class="portal-heading compact"><div><h3>Ponto eletrônico — hoje</h3><p class="muted">Apenas pessoas escaladas precisam registrar presença.</p></div></div><div class="list-view">${scheduledToday.map((profile) => `<article class="list-item director-row"><div><strong>${escapeHtml(profile.display_name)}</strong><p class="muted">${escapeHtml(profile.sector || "Setor não definido")}</p></div><span class="badge ${present.has(profile.auth_user_id) ? "success" : "warning"}">${present.has(profile.auth_user_id) ? "Entrada registrada" : "Sem registro"}</span></article>`).join("") || emptyState("Nenhuma escala cadastrada para hoje.")}</div></section>
-        <section class="panel"><div class="portal-heading compact"><div><h3>Checklists da equipe</h3><p class="muted">Quem não foi designado ou não trabalha no dia não entra como pendente.</p></div></div><div class="list-view">${pending.map((assignment) => { const task = activeTasks.find((item) => idsEqual(item.id, assignment.task_id)); const isOverdue = task?.due_at && new Date(task.due_at) < new Date(); return `<article class="list-item director-row"><div><strong>${escapeHtml(task?.title || "Checklist")}</strong><p class="muted">${escapeHtml(displayName(assignment.profile_id))} · ${escapeHtml(sector(assignment.profile_id))}</p></div><span class="badge ${isOverdue ? "warning" : ""}">${isOverdue ? "Vencido" : "Não concluído"}</span></article>`; }).join("") || emptyState("Todos os checklists distribuídos foram concluídos.")}</div></section>
+        <section class="panel"><div class="portal-heading compact"><div><h3>Checklists da equipe</h3><p class="muted">Acompanhe as tarefas distribuídas para a equipe.</p></div></div><div class="list-view">${pending.map((assignment) => { const task = activeTasks.find((item) => idsEqual(item.id, assignment.task_id)); const isOverdue = task?.due_at && new Date(task.due_at) < new Date(); return `<article class="list-item director-row"><div><strong>${escapeHtml(task?.title || "Checklist")}</strong></div><span class="badge ${isOverdue ? "warning" : ""}">${isOverdue ? "Vencido" : "Não concluído"}</span></article>`; }).join("") || emptyState("Todos os checklists distribuídos foram concluídos.")}</div></section>
       </div>
       <section class="panel"><div class="portal-heading compact"><div><h3>Criar checklist por setor</h3><p class="muted">Ele aparecerá automaticamente no painel do setor selecionado.</p></div></div><form class="contact-form" data-sector-checklist-form><label>Setor<select class="input" name="sector" required>${buildOptions(Object.entries(sectorLabels).map(([value, label]) => ({ value, label })))}</select></label><label>Título<input class="input" name="title" required></label><label>Orientação<textarea class="input" name="description" rows="2"></textarea></label><label>Itens (um por linha)<textarea class="input" name="items" rows="5" required></textarea></label><button class="button primary">Publicar checklist</button></form><div class="list-view">${state.sectorChecklists.map((checklist) => `<article class="list-item"><div><strong>${escapeHtml(checklist.title)}</strong><p class="muted">${escapeHtml(sectorLabels[checklist.sector] || checklist.sector)} · ${state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id)).length} item(ns)</p></div><button class="button ghost" type="button" data-sector-checklist-delete="${escapeHtml(checklist.id)}">Excluir</button></article>`).join("") || emptyState("Nenhum checklist publicado.")}</div></section>
       <section class="panel" data-director-notification-panel hidden><div class="portal-heading compact"><h3>Notificações da direção</h3><button class="button ghost" data-director-notifications>Fechar</button></div><div class="list-view">${pendingNotices.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.title)}</strong><p class="muted">${escapeHtml(item.message)}</p></div></article>`).join("") || emptyState("Nenhuma notificação pendente.")}</div></section>
@@ -3968,11 +4142,26 @@ function renderRecoveryCell(grade, trimester, student) {
   return `
     <div class="recovery-slot">
       <span class="muted">${label}</span>
-      <input class="input" data-recovery-input name="rec-${student.id}" type="text" inputmode="decimal" value="${recoveryScore || ""}" placeholder="Ex.: 7,5" ${
-        regularAverage >= 6 && !recoveryScore ? "disabled" : ""
-      }>
+      ${renderFixedGradeInput(recoveryScore, `rec-${student.id}`, "recoveryScore", `Nota de recuperação de ${student.name}`, {
+        recovery: true,
+        disabled: regularAverage >= 6 && !recoveryScore
+      })}
     </div>
   `;
+}
+
+function renderFixedGradeInput(score, name, field, label, { recovery = false, disabled = false } = {}) {
+  const numericScore = Number(score);
+  const hasScore = Number.isFinite(numericScore) && numericScore > 0;
+  const whole = hasScore ? String(Math.floor(numericScore)) : "";
+  const decimal = hasScore ? String(Math.round((numericScore - Math.floor(numericScore)) * 10)) : "";
+  const value = hasScore ? numericScore.toFixed(1) : "";
+  return `<div class="grade-score-input">
+    <input class="input" type="text" inputmode="numeric" maxlength="2" placeholder="0" data-score-part="whole" data-score-field="${escapeHtml(field)}" aria-label="${escapeHtml(label)} — parte inteira" value="${whole}" ${disabled ? "disabled" : ""}>
+    <span class="grade-score-separator" aria-hidden="true">.</span>
+    <input class="input" type="text" inputmode="numeric" maxlength="1" placeholder="0" data-score-part="decimal" data-score-field="${escapeHtml(field)}" aria-label="${escapeHtml(label)} — parte decimal" value="${decimal}" ${disabled ? "disabled" : ""}>
+    <input type="hidden" name="${escapeHtml(name)}" data-score-input="${escapeHtml(field)}" value="${value}" ${recovery ? "data-recovery-input" : ""}>
+  </div>`;
 }
 
 function teacherStudentRow(student, teacher, trimester, subject, className) {
@@ -3996,9 +4185,9 @@ function teacherStudentRow(student, teacher, trimester, subject, className) {
         <strong>${escapeHtml(student.name)}</strong>
         <small>Turma ${escapeHtml(getClassLabel(className))}</small>
       </div>
-      <label class="grade-input-cell" data-label="N1"><input class="input" aria-label="Nota 1 de ${escapeHtml(student.name)}" name="n1-${student.id}" type="text" inputmode="decimal" value="${trimesterData.n1 || ""}" placeholder="Ex.: 7,5" data-score-input="n1"></label>
-      <label class="grade-input-cell" data-label="N2"><input class="input" aria-label="Nota 2 de ${escapeHtml(student.name)}" name="n2-${student.id}" type="text" inputmode="decimal" value="${trimesterData.n2 || ""}" placeholder="Ex.: 7,5" data-score-input="n2"></label>
-      <label class="grade-input-cell" data-label="N3"><input class="input" aria-label="Nota 3 de ${escapeHtml(student.name)}" name="n3-${student.id}" type="text" inputmode="decimal" value="${trimesterData.n3 || ""}" placeholder="Ex.: 7,5" data-score-input="n3"></label>
+      <label class="grade-input-cell" data-label="N1">${renderFixedGradeInput(trimesterData.n1, `n1-${student.id}`, "n1", `Nota 1 de ${student.name}`)}</label>
+      <label class="grade-input-cell" data-label="N2">${renderFixedGradeInput(trimesterData.n2, `n2-${student.id}`, "n2", `Nota 2 de ${student.name}`)}</label>
+      <label class="grade-input-cell" data-label="N3">${renderFixedGradeInput(trimesterData.n3, `n3-${student.id}`, "n3", `Nota 3 de ${student.name}`)}</label>
       <div class="grade-value-cell" data-label="Recuperacao" data-recovery-cell>${renderRecoveryCell(grade, trimester, student)}</div>
       <strong class="grade-value-cell" data-label="Media" data-average>${average}</strong>
       <span class="grade-value-cell badge ${approved ? "success" : "warning"}" data-label="Situacao" data-status>${statusText}</span>
@@ -4043,20 +4232,44 @@ function setupTeacherGradeLivePreview(teacher, trimester, subject, className) {
         statusEl.textContent = status;
         statusEl.className = `badge ${approved ? "success" : "warning"}`;
       }
-      if (recoveryCell) recoveryCell.innerHTML = renderRecoveryCell(snapshot, trimester, student);
+      if (recoveryCell) {
+        const nextRecoveryMarkup = renderRecoveryCell(snapshot, trimester, student);
+        const recoveryInput = recoveryCell.querySelector('[data-recovery-input]');
+        const needsRecoveryInput = nextRecoveryMarkup.includes("data-recovery-input");
+        if (needsRecoveryInput !== Boolean(recoveryInput)) {
+          recoveryCell.innerHTML = nextRecoveryMarkup;
+          bindFixedGradeInputs(row, updateRow);
+        } else if (recoveryInput) {
+          const regularAverage = getTrimesterRegularAverage(snapshot, trimester);
+          const recoveryScore = getTrimesterRecoveryScore(snapshot, trimester);
+          recoveryInput.disabled = regularAverage >= 6 && !recoveryScore;
+        }
+      }
     };
 
-    row.querySelectorAll("[data-score-input]").forEach((input) => {
-      input.addEventListener("input", updateRow);
-    });
-
-    row.addEventListener("input", (event) => {
-      if (event.target.matches("[data-recovery-input]")) {
-        updateRow();
-      }
-    });
+    bindFixedGradeInputs(row, updateRow);
 
     updateRow();
+  });
+}
+
+function bindFixedGradeInputs(row, updateRow) {
+  row.querySelectorAll("[data-score-part]").forEach((input) => {
+    if (input.dataset.scoreBound) return;
+    input.dataset.scoreBound = "true";
+    input.addEventListener("focus", () => input.select());
+    input.addEventListener("input", () => {
+      const field = input.dataset.scoreField;
+      const wholeInput = row.querySelector(`[data-score-part="whole"][data-score-field="${field}"]`);
+      const decimalInput = row.querySelector(`[data-score-part="decimal"][data-score-field="${field}"]`);
+      const valueInput = row.querySelector(`[data-score-input="${field}"]`);
+      const whole = wholeInput?.value.replace(/\D/g, "").slice(0, 2) || "";
+      const decimal = decimalInput?.value.replace(/\D/g, "").slice(0, 1) || "";
+      if (wholeInput && wholeInput.value !== whole) wholeInput.value = whole;
+      if (decimalInput && decimalInput.value !== decimal) decimalInput.value = decimal;
+      if (valueInput) valueInput.value = whole || decimal ? `${whole || "0"}.${decimal || "0"}` : "";
+      updateRow();
+    });
   });
 }
 
@@ -4226,6 +4439,72 @@ function setupPreferences() {
   localStorage.removeItem("theme");
 }
 
+function publicSupportRequesterId() {
+  const key = "ceti-public-support-requester";
+  let requesterId = localStorage.getItem(key);
+  if (!requesterId) {
+    requesterId = `public:${makeId()}`;
+    localStorage.setItem(key, requesterId);
+  }
+  return requesterId;
+}
+
+function renderPublicSupportChat() {
+  const content = $("[data-public-chat-content]");
+  const requesterId = publicSupportRequesterId();
+  const request = activeSupportRequest(requesterId);
+  if (request) {
+    content.innerHTML = `<p class="support-subject"><strong>${escapeHtml(request.subject)}</strong> · ${escapeHtml(request.status)}</p>${supportMessageList(request, "public")}${supportComposer(request, "public", requesterId, request.requester_name, "public", request.requester_contact || "")}`;
+    bindSupportComposer(content, renderPublicSupportChat);
+    return;
+  }
+
+  const latest = latestSupportRequest(requesterId);
+  const previousName = latest?.requester_name || localStorage.getItem("ceti-public-support-name") || "";
+  const previousContact = latest?.requester_contact || localStorage.getItem("ceti-public-support-contact") || "";
+  content.innerHTML = `${latest ? `<p class="support-closed-note">Este assunto foi encerrado. Se precisar, inicie uma nova conversa.</p>` : `<p class="muted">Informe seus dados para que a Secretaria possa responder.</p>`}<form class="support-composer" data-public-support-start>
+    <label>Nome<input class="input" name="name" value="${escapeHtml(previousName)}" required></label>
+    <label>Contato<input class="input" name="contact" value="${escapeHtml(previousContact)}" placeholder="E-mail ou telefone" required></label>
+    <label>Assunto<select class="input" name="subject"><option>Dúvida</option><option>Declaração</option><option>Diploma ou histórico</option><option>Matrícula ou rematrícula</option><option>Pedido de impressão</option><option>Outro atendimento</option></select></label>
+    <label>Mensagem<textarea class="input" name="message" rows="3"></textarea></label>
+    <label class="support-file-label">Anexar documento<input class="input" name="file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*"></label>
+    <button class="button primary" type="submit">Enviar para a Secretaria</button>
+  </form>`;
+  $("[data-public-support-start]", content).addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = $("button[type=submit]", form);
+    submit.disabled = true;
+    try {
+      const values = new FormData(form);
+      const name = String(values.get("name") || "").trim();
+      const contact = String(values.get("contact") || "").trim();
+      const body = String(values.get("message") || "").trim();
+      const file = values.get("file");
+      const attachment = file?.size ? (await readAttachments([file]))[0] : null;
+      const request = await startSupportConversation({
+        requesterId,
+        requesterName: name,
+        requesterRole: "public",
+        contact,
+        subject: String(values.get("subject") || "Atendimento"),
+        body,
+        attachment
+      });
+      if (request) {
+        localStorage.setItem("ceti-public-support-name", name);
+        localStorage.setItem("ceti-public-support-contact", contact);
+        renderPublicSupportChat();
+      }
+    } catch (error) {
+      console.error("Erro ao iniciar atendimento público:", error);
+      toast(error.message || "Não foi possível iniciar o atendimento.");
+    } finally {
+      if (submit.isConnected) submit.disabled = false;
+    }
+  });
+}
+
 function setupUi() {
   document.addEventListener("input", (event) => {
     if (event.target.matches("input, textarea, select") && event.target.closest("form")) hasUnsavedFormChanges = true;
@@ -4233,10 +4512,15 @@ function setupUi() {
   document.addEventListener("change", (event) => {
     if (event.target.matches("input, textarea, select") && event.target.closest("form")) hasUnsavedFormChanges = true;
   }, true);
-  document.body.insertAdjacentHTML("beforeend", `<button class="public-secretary-chat" type="button" data-public-chat-toggle aria-label="Falar com a Secretaria">☁ <span>Falar com a Secretaria</span></button><section class="public-secretary-chat-box" data-public-chat-box hidden><div class="portal-heading compact"><div><h3>Atendimento da Secretaria</h3><p class="muted">Declarações, diplomas, dúvidas e sugestões.</p></div><button class="button ghost" type="button" data-public-chat-close>Fechar</button></div><form class="contact-form" data-public-chat-form><label>Nome<input class="input" name="name" required></label><label>Contato<input class="input" name="contact" required placeholder="E-mail ou telefone"></label><label>Assunto<select class="input" name="subject"><option>Declaração</option><option>Diploma ou histórico</option><option>Dúvida</option><option>Feedback</option></select></label><label>Mensagem<textarea class="input" name="message" rows="4" required></textarea></label><button class="button primary">Enviar para a Secretaria</button></form></section>`);
-  $("[data-public-chat-toggle]")?.addEventListener("click", () => { const box = $("[data-public-chat-box]"); if (box) box.hidden = !box.hidden; });
-  $("[data-public-chat-close]")?.addEventListener("click", () => { const box = $("[data-public-chat-box]"); if (box) box.hidden = true; });
-  $("[data-public-chat-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.target); const saved = await upsertRecord("support_requests", { requester_name: String(form.get("name")).trim(), requester_role: "public", subject: `${form.get("subject")} — ${form.get("contact")}`, message: String(form.get("message")).trim(), status:"Aberto" }, "id", "Responderemos o mais breve possível pelo e-mail cadastrado.", { skipPortalRender:true }); if (saved) { await upsertRecord("private_notifications", { title:"Novo atendimento público", message:`${form.get("name")}: ${form.get("subject")}`, recipient_sector:"secretaria" }, "id", "", { skipPortalRender:true }); event.target.reset(); $("[data-public-chat-box]").hidden = true; } });
+  document.body.insertAdjacentHTML("beforeend", `<button class="public-secretary-chat" type="button" data-public-chat-toggle aria-label="Falar com a Secretaria" title="Falar com a Secretaria">${secretaryChatIcon()}</button><section class="public-secretary-chat-box" data-public-chat-box hidden><div class="portal-heading compact"><div><h3>Atendimento da Secretaria</h3><p class="muted">Declarações, diplomas, dúvidas e outros serviços.</p></div><button class="button ghost" type="button" data-public-chat-close aria-label="Fechar janela do chat">×</button></div><div data-public-chat-content></div></section>`);
+  $("[data-public-chat-toggle]")?.addEventListener("click", () => {
+    const box = $("[data-public-chat-box]");
+    if (box) {
+      box.hidden = !box.hidden;
+      if (!box.hidden) renderPublicSupportChat();
+    }
+  });
+  $("[data-public-chat-close]")?.addEventListener("click", () => { $("[data-public-chat-box]").hidden = true; });
   $("[data-menu-toggle]")?.addEventListener("click", () => {
     $("[data-nav-panel]")?.classList.toggle("open");
     document.body.classList.toggle("no-scroll");

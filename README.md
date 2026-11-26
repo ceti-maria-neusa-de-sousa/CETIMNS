@@ -57,11 +57,16 @@ no primeiro acesso e o administrador pode restaurar essa senha na lista de aluno
 Para instalações já existentes, execute também `supabase-graduation.sql`. Ela adiciona
 o status de formado e ajusta a exclusão de alunos para remover as notas vinculadas.
 
+Para ativar o chat persistente da Secretaria, execute `supabase-support-requests.sql` no
+SQL Editor do Supabase. O chat mantém as conversas e anexos até a Secretaria encerrar o
+assunto; a resposta automática básica mostra os serviços disponíveis e informa que a
+equipe responderá em breve.
+
 Se quiser reexecutar a criacao do admin manualmente no navegador, use `setup-admin.js`.
 
 ## Checklists por setor
 
-Execute tambem `supabase-sector-checklists.sql` no SQL Editor do Supabase. Depois, no painel **Diretor**, crie um checklist para cada setor. Ele sera exibido automaticamente nos paineis de Secretaria, Cozinha, Servicos Gerais, Professores ou Alunos, conforme o setor selecionado. O mesmo arquivo cria o ponto eletronico; se voce ja o executou antes desta atualizacao, execute-o novamente.
+Execute tambem `supabase-sector-checklists.sql` no SQL Editor do Supabase. Depois, no painel **Diretor**, crie um checklist para cada setor. Ele sera exibido automaticamente nos paineis de Secretaria, Cozinha, Servicos Gerais, Professores ou Alunos, conforme o setor selecionado.
 
 ## Como a sincronizacao funciona
 
