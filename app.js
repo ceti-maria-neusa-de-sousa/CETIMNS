@@ -2187,6 +2187,34 @@ function activeSupportRequest(requesterId) {
     .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))[0] || null;
 }
 
+function dateKeyForDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function schoolDateKey(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}
+
+function dateRangeForPeriod(period, dateValue) {
+  const reference = /^\d{4}-\d{2}-\d{2}$/.test(dateValue || "") ? new Date(`${dateValue}T12:00:00`) : new Date();
+  const start = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate(), 12);
+  const end = new Date(start);
+  if (period === "week") {
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    end.setTime(start.getTime());
+    end.setDate(end.getDate() + 6);
+  } else if (period === "month") {
+    start.setDate(1);
+    end.setMonth(start.getMonth() + 1, 0);
+  } else if (period === "year") {
+    start.setMonth(0, 1);
+    end.setFullYear(start.getFullYear(), 11, 31);
+  }
+  return { start: dateKeyForDate(start), end: dateKeyForDate(end) };
+}
+
 function supportAttachmentLink(file) {
   if (!file?.data) return "";
   return `<a class="support-attachment" href="${escapeHtml(file.data)}" download="${escapeHtml(file.name || "documento")}">Baixar ${escapeHtml(file.name || "documento")}</a>`;
@@ -2439,7 +2467,6 @@ function renderStaffPanel(session) {
 
 function renderSecretaryPanel(session, employee) {
   const root = $("[data-login-root]");
-  const requests = state.supportRequests.slice().sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   root.innerHTML = `<div class="portal-heading"><div><h2>Secretaria Escolar: ${escapeHtml(employee.name)}</h2><p class="muted">Atendimentos, documentos e cadastros escolares.</p></div><div class="row-actions">${notificationBell(session)}${passwordChangeButton(session)}<button class="button ghost" data-logout>Sair</button></div></div><div class="segmented"><button class="active" data-secretary-tab="requests">Atendimentos</button><button data-secretary-tab="people">Escola</button><button data-secretary-tab="documents">Documentos</button></div><div data-secretary-content></div>`;
 
   root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
@@ -2471,11 +2498,19 @@ function renderSecretaryPanel(session, employee) {
       return;
     }
 
-    content.innerHTML = `<section class="panel"><h3>Conversas com a comunidade</h3><div class="support-conversation-list">${requests.map((item) => {
+    const period = $("[data-support-period]", content)?.value || "all";
+    const referenceDate = $("[data-support-date]", content)?.value || "";
+    const range = dateRangeForPeriod(period, referenceDate);
+    const requests = state.supportRequests
+      .filter((item) => period === "all" || (schoolDateKey(item.created_at) >= range.start && schoolDateKey(item.created_at) <= range.end))
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    content.innerHTML = `<section class="panel"><div class="portal-heading compact"><div><h3>Chamados recebidos</h3><p class="muted">Consulte o conteúdo, remetente e data de cada atendimento.</p></div></div><div class="support-filters"><label>Período<select class="input" data-support-period><option value="all" ${period === "all" ? "selected" : ""}>Todos</option><option value="day" ${period === "day" ? "selected" : ""}>Dia</option><option value="week" ${period === "week" ? "selected" : ""}>Semana</option><option value="month" ${period === "month" ? "selected" : ""}>Mês</option><option value="year" ${period === "year" ? "selected" : ""}>Ano</option></select></label><label>Data de referência<input class="input" type="date" data-support-date value="${escapeHtml(referenceDate || new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }))}"></label></div><div class="support-conversation-list">${requests.map((item) => {
       const isClosed = String(item.status || "").toLowerCase() === "encerrado";
       const legacyFile = item.attachment?.data ? supportAttachmentLink(item.attachment) : "";
-      return `<article class="support-thread-card"><header><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.requester_role || "público")}${item.requester_contact ? ` · ${escapeHtml(item.requester_contact)}` : ""} · ${escapeHtml(item.status || "Aberto")}</p></div>${isClosed ? `<span class="badge">Encerrado</span>` : `<button class="button ghost" type="button" data-support-close="${escapeHtml(item.id)}">Encerrar assunto</button>`}</header>${legacyFile ? `<div class="support-legacy-attachment">${legacyFile}</div>` : ""}${supportMessageList(item, "secretaria")}${isClosed ? `<p class="support-closed-note">Este assunto foi encerrado.</p>` : supportComposer(item, "secretaria", String(session.id), employee.name, "secretaria")}</article>`;
+      const receivedDate = item.created_at ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(item.created_at)) : "Data não informada";
+      return `<article class="support-thread-card"><header><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.requester_role || "público")}${item.requester_contact ? ` · ${escapeHtml(item.requester_contact)}` : ""} · ${escapeHtml(item.status || "Aberto")}</p><p class="muted">Recebido em ${escapeHtml(receivedDate)}</p></div><div class="row-actions">${isClosed ? `<span class="badge">Encerrado</span>` : `<button class="button ghost" type="button" data-support-close="${escapeHtml(item.id)}">Encerrar assunto</button>`}<button class="button ghost" type="button" data-support-delete="${escapeHtml(item.id)}">Excluir</button></div></header>${legacyFile ? `<div class="support-legacy-attachment">${legacyFile}</div>` : ""}${supportMessageList(item, "secretaria")}${isClosed ? `<p class="support-closed-note">Este assunto foi encerrado.</p>` : supportComposer(item, "secretaria", String(session.id), employee.name, "secretaria")}</article>`;
     }).join("") || emptyState("Nenhum atendimento recebido.")}</div></section>`;
+    $$("[data-support-period], [data-support-date]", content).forEach((input) => input.addEventListener("change", () => show("requests")));
     bindSupportComposer(content, () => show("requests"));
     $$("[data-support-close]", content).forEach((button) => button.addEventListener("click", async () => {
       const item = requests.find((request) => idsEqual(request.id, button.dataset.supportClose));
@@ -2488,6 +2523,21 @@ function renderSecretaryPanel(session, employee) {
       Object.assign(item, data);
       clearCache("support_requests");
       toast("Assunto encerrado.");
+      show("requests");
+    }));
+    $$("[data-support-delete]", content).forEach((button) => button.addEventListener("click", async () => {
+      const item = requests.find((request) => idsEqual(request.id, button.dataset.supportDelete));
+      if (!item || !window.confirm(`Excluir permanentemente o atendimento de ${item.requester_name} sobre "${item.subject}"?`)) return;
+      const { error } = await supabase.from("support_requests").delete().eq("id", item.id);
+      if (error) {
+        console.error("Erro ao excluir atendimento:", error);
+        return toast(`Não foi possível excluir o atendimento: ${error.message || "tente novamente."}`);
+      }
+      state.supportRequests = state.supportRequests.filter((request) => !idsEqual(request.id, item.id));
+      state.supportMessages = state.supportMessages.filter((message) => !idsEqual(message.support_request_id, item.id));
+      clearCache("support_requests");
+      clearCache("support_messages");
+      toast("Atendimento excluído.");
       show("requests");
     }));
   };
@@ -3520,6 +3570,7 @@ function renderStudentsAdmin(content) {
 
 function renderDirectorAdmin(content) {
   const checklistToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const reportToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const weekday = new Date().getDay();
   const checklistTracking = state.sectorChecklists.filter((item) => item.active !== false && (Array.isArray(item.weekdays) ? item.weekdays : [0,1,2,3,4,5,6]).includes(weekday)).flatMap((checklist) => {
     const items = state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id));
@@ -3538,6 +3589,76 @@ function renderDirectorAdmin(content) {
     return task?.due_at && new Date(task.due_at) < new Date();
   });
   const pendingNotices = state.notifications.filter((item) => item.recipient_role === "all_admins" || item.recipient_role === "all_school").slice(-6).reverse();
+  const renderChecklistPerformance = (period, referenceDate) => {
+    const range = dateRangeForPeriod(period, referenceDate);
+    const periodDates = [];
+    const cursor = new Date(`${range.start}T12:00:00`);
+    const lastDate = new Date(`${range.end}T12:00:00`);
+    while (cursor <= lastDate) {
+      periodDates.push({ key: dateKeyForDate(cursor), weekday: cursor.getDay() });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const people = new Map();
+    state.sectorChecklists.filter((item) => item.active !== false).forEach((checklist) => {
+      const items = state.sectorChecklistItems.filter((item) => idsEqual(item.checklist_id, checklist.id));
+      if (!items.length) return;
+      const scheduledDays = Array.isArray(checklist.weekdays) ? checklist.weekdays : [0, 1, 2, 3, 4, 5, 6];
+      const createdDate = schoolDateKey(checklist.created_at);
+      const dates = periodDates.filter((date) => scheduledDays.includes(date.weekday) && (!createdDate || date.key >= createdDate));
+      if (!dates.length) return;
+      const assignedPeople = state.sectorChecklistAssignees.filter((item) => idsEqual(item.checklist_id, checklist.id));
+      const checklistPeople = assignedPeople.length
+        ? assignedPeople
+        : checklist.sector === "professores"
+          ? state.teachers.map((person) => ({ user_role: "teacher", user_id: person.id }))
+          : checklist.sector === "alunos"
+            ? []
+            : state.staff.filter((person) => person.sector === checklist.sector).map((person) => ({ user_role: "staff", user_id: person.id }));
+      const itemIds = new Set(items.map((item) => String(item.id)));
+      const dateKeys = new Set(dates.map((date) => date.key));
+      checklistPeople.forEach((assignment) => {
+        const key = `${assignment.user_role}:${assignment.user_id}`;
+        if (!people.has(key)) {
+          const person = assignment.user_role === "teacher"
+            ? state.teachers.find((item) => idsEqual(item.id, assignment.user_id))
+            : state.staff.find((item) => idsEqual(item.id, assignment.user_id));
+          people.set(key, {
+            name: person?.name || "Funcionário não encontrado",
+            role: assignment.user_role === "teacher" ? "Professor(a)" : (sectorLabels[person?.sector] || person?.sector || "Funcionário"),
+            expected: 0,
+            completed: new Set()
+          });
+        }
+        const reportPerson = people.get(key);
+        reportPerson.expected += items.length * dates.length;
+        state.sectorChecklistCompletions.forEach((completion) => {
+          if (
+            completion.completed &&
+            idsEqual(completion.checklist_id, checklist.id) &&
+            idsEqual(completion.user_id, assignment.user_id) &&
+            completion.user_role === assignment.user_role &&
+            itemIds.has(String(completion.item_id)) &&
+            dateKeys.has(completion.completed_on)
+          ) {
+            reportPerson.completed.add(`${completion.completed_on}:${completion.item_id}`);
+          }
+        });
+      });
+    });
+
+    const rows = [...people.values()]
+      .filter((person) => person.expected > 0)
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"))
+      .map((person) => {
+        const done = Math.min(person.completed.size, person.expected);
+        const percent = Math.round((done / person.expected) * 100);
+        return `<tr><td data-label="Funcionário">${escapeHtml(person.name)}</td><td data-label="Setor/função">${escapeHtml(person.role)}</td><td data-label="Concluídos">${done}</td><td data-label="Previstos">${person.expected}</td><td data-label="Desempenho"><strong>${percent}%</strong></td></tr>`;
+      });
+    const labelDate = (value) => new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(`${value}T12:00:00`));
+    const periodLabel = range.start === range.end ? labelDate(range.start) : `${labelDate(range.start)} a ${labelDate(range.end)}`;
+    return `<p class="muted">Período: ${periodLabel}</p><div class="table-scroll"><table class="report-table checklist-performance-table"><thead><tr><th>Funcionário</th><th>Setor/função</th><th>Concluídos</th><th>Previstos</th><th>Desempenho</th></tr></thead><tbody>${rows.join("") || `<tr><td colspan="5">Não há checklists escalados para este período.</td></tr>`}</tbody></table></div>`;
+  };
   content.innerHTML = `
     <div class="director-shell">
       <div class="director-hero"><div><span>Painel de gestão</span><h2>Diretor</h2><p>Acompanhe checklists e pendências da equipe em um só lugar.</p></div><button class="button primary" type="button" data-director-notifications>Ver avisos</button></div>
@@ -3546,6 +3667,7 @@ function renderDirectorAdmin(content) {
         ${miniStat("Checklists pendentes", pending.length)}
         ${miniStat("Vencidos", overdue.length)}
       </div>
+      <section class="panel director-report"><div class="portal-heading compact"><div><h3>Relatório de desempenho dos funcionários</h3><p class="muted">Compare itens concluídos com os checklists previstos para cada pessoa.</p></div></div><div class="support-filters"><label>Período<select class="input" data-checklist-report-period><option value="day">Dia</option><option value="week">Semana</option><option value="month" selected>Mês</option><option value="year">Ano</option></select></label><label>Data de referência<input class="input" type="date" data-checklist-report-date value="${reportToday}"></label></div><div data-checklist-performance-results>${renderChecklistPerformance("month", reportToday)}</div></section>
       <div class="director-grid">
         <section class="panel"><div class="portal-heading compact"><div><h3>Checklists de hoje</h3><p class="muted">Acompanhamento por local e responsável.</p></div></div><div class="list-view">${checklistTracking.map(({ checklist, items, done, person }) => `<article class="list-item director-row"><div><strong>${escapeHtml(checklist.title)}</strong><p class="muted">${escapeHtml(checklist.location || checklist.sector)} · ${escapeHtml(person?.name || "Responsável")}</p></div><span class="badge ${items.length && done === items.length ? "success" : "warning"}">${items.length && done === items.length ? "Concluído" : `${done}/${items.length} itens`}</span></article>`).join("") || emptyState("Não há checklists escalados para hoje.")}</div></section>
         <section class="panel"><div class="portal-heading compact"><div><h3>Checklists da equipe</h3><p class="muted">Acompanhe as tarefas distribuídas para a equipe.</p></div></div><div class="list-view">${pending.map((assignment) => { const task = activeTasks.find((item) => idsEqual(item.id, assignment.task_id)); const isOverdue = task?.due_at && new Date(task.due_at) < new Date(); return `<article class="list-item director-row"><div><strong>${escapeHtml(task?.title || "Checklist")}</strong></div><span class="badge ${isOverdue ? "warning" : ""}">${isOverdue ? "Vencido" : "Não concluído"}</span></article>`; }).join("") || emptyState("Todos os checklists distribuídos foram concluídos.")}</div></section>
@@ -3554,6 +3676,12 @@ function renderDirectorAdmin(content) {
       <section class="panel" data-director-notification-panel hidden><div class="portal-heading compact"><h3>Notificações da direção</h3><button class="button ghost" data-director-notifications>Fechar</button></div><div class="list-view">${pendingNotices.map((item) => `<article class="list-item"><div><strong>${escapeHtml(item.title)}</strong><p class="muted">${escapeHtml(item.message)}</p></div></article>`).join("") || emptyState("Nenhuma notificação pendente.")}</div></section>
     </div>`;
   $$('[data-director-notifications]').forEach((button) => button.addEventListener("click", () => { const panel = $(`[data-director-notification-panel]`); if (panel) panel.hidden = !panel.hidden; }));
+  const updateChecklistReport = () => {
+    const period = $("[data-checklist-report-period]", content).value;
+    const referenceDate = $("[data-checklist-report-date]", content).value;
+    $("[data-checklist-performance-results]", content).innerHTML = renderChecklistPerformance(period, referenceDate);
+  };
+  $$("[data-checklist-report-period], [data-checklist-report-date]", content).forEach((input) => input.addEventListener("change", updateChecklistReport));
   const editingChecklist = state.sectorChecklists.find((item) => idsEqual(item.id, editingSectorChecklistId));
   const checklistPeople = [
     ...state.teachers.map((person) => ({ id: person.id, role: "teacher", name: person.name, sector: "professores" })),

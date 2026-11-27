@@ -1247,6 +1247,8 @@ textarea.input {
 .support-thread-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .support-thread-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .support-thread-card > header .muted { margin: 5px 0 0; }
+.support-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; max-width: 560px; margin-bottom: 16px; }
+.support-filters label { display: grid; gap: 5px; color: var(--muted); font-size: .84rem; font-weight: 700; }
 .support-conversation-list { display: grid; gap: 14px; margin-top: 14px; }
 .support-legacy-attachment { padding: 8px 0; }
 .public-secretary-chat-box [data-public-chat-content],
@@ -1964,6 +1966,7 @@ textarea.input {
   .report-table:not(.student-detailed-report) td:nth-child(5)::before { content: "3o trimestre"; }
   .report-table:not(.student-detailed-report) td:nth-child(6)::before { content: "Media anual"; }
   .report-table:not(.student-detailed-report) td:nth-child(7)::before { content: "Situacao"; }
+  .report-table.checklist-performance-table td::before { content: attr(data-label); }
   .student-detailed-report td:nth-child(1)::before { content: "Disciplina"; }
   .student-detailed-report td:nth-child(2)::before, .student-detailed-report td:nth-child(6)::before, .student-detailed-report td:nth-child(10)::before { content: "Nota 1"; }
   .student-detailed-report td:nth-child(3)::before, .student-detailed-report td:nth-child(7)::before, .student-detailed-report td:nth-child(11)::before { content: "Nota 2"; }
