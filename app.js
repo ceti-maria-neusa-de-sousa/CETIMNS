@@ -581,6 +581,14 @@ function getSubjectLabel(value) {
   return match?.name || rawValue;
 }
 
+function sameClassLabel(left, right) {
+  return normalizeLabel(getClassLabel(left)) === normalizeLabel(getClassLabel(right));
+}
+
+function sameSubjectLabel(left, right) {
+  return normalizeLabel(getSubjectLabel(left)) === normalizeLabel(getSubjectLabel(right));
+}
+
 function parseTeacherSubjectList(value) {
   if (Array.isArray(value)) {
     return value.map((item) => getSubjectLabel(item)).filter(Boolean);
@@ -627,20 +635,20 @@ function getTeacherSubjectClassPairs(teacher) {
 
   const subjects = getTeacherSubjects(teacher);
   const classes = getTeacherClasses(teacher);
-  return subjects.flatMap((subject) => classes.map((className) => ({ subject, className })));
+  if (subjects.length === 1) return classes.map((className) => ({ subject: subjects[0], className }));
+  if (classes.length === 1) return subjects.map((subject) => ({ subject, className: classes[0] }));
+  return [];
 }
 
 function getValidClassesForTeacherSubject(teacher, subject) {
-  const normalizedSubject = getSubjectLabel(subject);
   const pairs = getTeacherSubjectClassPairs(teacher);
-  const classes = pairs.filter((pair) => getSubjectLabel(pair.subject) === normalizedSubject).map((pair) => pair.className);
+  const classes = pairs.filter((pair) => sameSubjectLabel(pair.subject, subject)).map((pair) => pair.className);
   return [...new Set(classes)];
 }
 
 function getValidSubjectsForTeacherClass(teacher, className) {
-  const normalizedClass = getClassLabel(className);
   const pairs = getTeacherSubjectClassPairs(teacher);
-  const subjects = pairs.filter((pair) => getClassLabel(pair.className) === normalizedClass).map((pair) => pair.subject);
+  const subjects = pairs.filter((pair) => sameClassLabel(pair.className, className)).map((pair) => pair.subject);
   return [...new Set(subjects)];
 }
 
@@ -1223,6 +1231,7 @@ function renderTeacherPanel(session) {
   }
   const teacherClasses = getTeacherClasses(teacher);
   const teacherSubjects = getTeacherSubjects(teacher);
+  const hasAmbiguousLegacyAssignments = !getTeacherAssignments(teacher).length && teacherClasses.length > 1 && teacherSubjects.length > 1;
   if (!teacherSubjects.length && teacher.subject) teacherSubjects.push(...parseTeacherSubjectList(teacher.subject));
   if (!teacherClasses.some((className) => normalizeLabel(className) === normalizeLabel(currentTeacherClass))) currentTeacherClass = "";
   const subjectsForSelectedClass = currentTeacherClass ? getValidSubjectsForTeacherClass(teacher, currentTeacherClass) : [];
@@ -1231,12 +1240,12 @@ function renderTeacherPanel(session) {
   const activeSubject = currentTeacherSubject;
   const activeClass = currentTeacherClass;
   const teacherStudents = activeClass && activeSubject
-    ? sortPeopleByName(state.students.filter((student) => getClassLabel(student.className) === activeClass))
+    ? sortPeopleByName(state.students.filter((student) => sameClassLabel(student.className, activeClass)))
     : [];
   const teacherGrades = state.grades.filter(
     (grade) =>
-      getSubjectLabel(grade.subject) === getSubjectLabel(activeSubject) &&
-      getClassLabel(grade.className) === getClassLabel(activeClass)
+      sameSubjectLabel(grade.subject, activeSubject) &&
+      sameClassLabel(grade.className, activeClass)
   );
 
   root.innerHTML = `
@@ -1279,6 +1288,7 @@ function renderTeacherPanel(session) {
           .join("") || `<span class="muted">Nenhuma disciplina vinculada a esta turma.</span>`
           : `<span class="muted">Escolha uma turma para ver as disciplinas.</span>`}
       </div>
+      ${hasAmbiguousLegacyAssignments ? `<p class="badge warning" role="status">Os vínculos antigos não informam qual disciplina pertence a cada turma. Peça à direção para revisar as disciplinas e turmas deste professor.</p>` : ""}
     </div>
     <div class="panel">
       <div class="portal-heading compact">
@@ -1394,8 +1404,8 @@ function renderTeacherPanel(session) {
       const existing = state.grades.find(
         (g) =>
           idsEqual(g.studentId, student.id) &&
-          getSubjectLabel(g.subject) === getSubjectLabel(activeSubject) &&
-          getClassLabel(g.className) === getClassLabel(activeClass)
+          sameSubjectLabel(g.subject, activeSubject) &&
+          sameClassLabel(g.className, activeClass)
       );
 
       const n1 = event.target.elements[`n1-${student.id}`]?.value || 0;
@@ -1441,8 +1451,8 @@ function renderTeacherPanel(session) {
           (gradeData.id && idsEqual(item.id, gradeData.id)) ||
           (!gradeData.id &&
             idsEqual(item.studentId, gradeData.studentId) &&
-            getSubjectLabel(item.subject) === getSubjectLabel(gradeData.subject) &&
-            getClassLabel(item.className) === getClassLabel(gradeData.className))
+            sameSubjectLabel(item.subject, gradeData.subject) &&
+            sameClassLabel(item.className, gradeData.className))
         ) || gradeData;
         if (existing) {
           const index = state.grades.indexOf(existing);
@@ -1593,11 +1603,9 @@ function teacherReportTableV2(teacher, grades) {
 
 // ==================== PAINEL DO ALUNO ====================
 function getTeachersForSubjectAndClass(subject, className) {
-  const subjectLabel = getSubjectLabel(subject);
-  const classLabel = getClassLabel(className);
   return state.teachers.filter((teacher) =>
     getTeacherSubjectClassPairs(teacher).some(
-      (pair) => getSubjectLabel(pair.subject) === subjectLabel && getClassLabel(pair.className) === classLabel
+      (pair) => sameSubjectLabel(pair.subject, subject) && sameClassLabel(pair.className, className)
     )
   );
 }
@@ -1606,7 +1614,7 @@ function getStudentSubjectEntries(student) {
   const className = getClassLabel(student.className);
   const subjects = new Set(getSubjectsForClass(className));
   state.grades
-    .filter((grade) => idsEqual(grade.studentId, student.id))
+    .filter((grade) => idsEqual(grade.studentId, student.id) && sameClassLabel(grade.className, className))
     .forEach((grade) => subjects.add(getSubjectLabel(grade.subject)));
 
   return [...subjects]
@@ -1615,7 +1623,9 @@ function getStudentSubjectEntries(student) {
     .map((subject) => ({
       subject,
       grade: state.grades.find(
-        (grade) => idsEqual(grade.studentId, student.id) && getSubjectLabel(grade.subject) === subject
+        (grade) => idsEqual(grade.studentId, student.id) &&
+          sameSubjectLabel(grade.subject, subject) &&
+          sameClassLabel(grade.className, className)
       ) || null,
       teachers: getTeachersForSubjectAndClass(subject, className)
     }));
@@ -4308,8 +4318,8 @@ function teacherStudentRow(student, teacher, trimester, subject, className) {
   const grade = state.grades.find(
     (g) =>
       idsEqual(g.studentId, student.id) &&
-      getSubjectLabel(g.subject) === getSubjectLabel(subject) &&
-      getClassLabel(g.className) === getClassLabel(className)
+      sameSubjectLabel(g.subject, subject) &&
+      sameClassLabel(g.className, className)
   ) || {
     trimesters: { 1: normalizeTrimester(), 2: normalizeTrimester(), 3: normalizeTrimester() }
   };
@@ -4344,8 +4354,8 @@ function setupTeacherGradeLivePreview(teacher, trimester, subject, className) {
     const baseGrade = state.grades.find(
       (g) =>
         idsEqual(g.studentId, student.id) &&
-        getSubjectLabel(g.subject) === getSubjectLabel(subject) &&
-        getClassLabel(g.className) === getClassLabel(className)
+        sameSubjectLabel(g.subject, subject) &&
+        sameClassLabel(g.className, className)
     ) || {
       studentId: student.id,
       subject,
