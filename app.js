@@ -1,4 +1,4 @@
-import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-startup-refresh";
+import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-grade-entry";
 
 console.log("App carregado!");
 console.log("Supabase:", supabase);
@@ -82,6 +82,7 @@ let requiredDataLoadErrors = 0;
 let supportMessagesLoaded = false;
 const loadedSupportMessageRequestIds = new Set();
 const supportMessagesLoadPromises = new Map();
+const notificationDismissalSyncAttempts = new Set();
 // Impede que a atualização automática substitua um formulário em edição.
 let hasUnsavedFormChanges = false;
 let adminEditState = {
@@ -555,7 +556,10 @@ function areTrimestersEqual(left, right) {
 }
 
 function isValidGradeScore(value) {
-  const score = parseGradeScore(value);
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  if (!normalized) return true;
+  if (!/^\d{1,2}(?:\.\d)?$/.test(normalized)) return false;
+  const score = Number(normalized);
   return Number.isFinite(score) && score >= 0 && score <= 10;
 }
 
@@ -1326,7 +1330,7 @@ function renderTeacherPanel(session) {
         </div>
       </div>
       <form data-teacher-grade-form>
-        <p class="muted fixed-grade-hint">Digite somente os algarismos; o ponto decimal já aparece fixo entre os campos.</p>
+        <p class="muted fixed-grade-hint">Digite sem o ponto: 10 vira 1.0, 65 vira 6.5 e 100 vira 10.0. Notas acima de 10 não são aceitas.</p>
         <div class="gradebook-table">
           <div class="gradebook-head">
             <span>Estudante</span><span>N1</span><span>N2</span><span>N3</span><span>Média</span><span>Recuperação</span><span>Situação</span>
@@ -1438,7 +1442,7 @@ function renderTeacherPanel(session) {
       const n3 = event.target.elements[`n3-${student.id}`]?.value || 0;
       const recoveryScore = event.target.elements[`rec-${student.id}`]?.value || 0;
       if (![n1, n2, n3, recoveryScore].every(isValidGradeScore)) {
-        return toast(`A nota de ${student.name} deve estar entre 0 e 10.`);
+        return toast(`A nota de ${student.name} deve estar entre 0,0 e 10,0, com uma casa decimal.`);
       }
       const recovery = calculateTrimesterRecovery(n1, n2, n3);
 
@@ -2142,7 +2146,71 @@ function privateNotificationsFor(session) {
   );
 }
 
+async function syncLocalNotificationDismissals(session) {
+  const syncKey = `${session.role}:${session.id}`;
+  if (notificationDismissalSyncAttempts.has(syncKey)) return;
+  const storageKey = `ceti-dismissed-${session.role}-${session.id}`;
+  let dismissedIds;
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (!stored) {
+      notificationDismissalSyncAttempts.add(syncKey);
+      return;
+    }
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) throw new Error("Formato local de avisos ocultados inválido.");
+    dismissedIds = [...new Set(parsed.map(String))];
+  } catch (error) {
+    notificationDismissalSyncAttempts.add(syncKey);
+    console.error("Não foi possível ler avisos ocultados neste dispositivo:", error);
+    return;
+  }
+
+  const availableNotificationIds = new Set(state.notifications.map((item) => String(item.id)));
+  const rows = dismissedIds
+    .filter((id) => availableNotificationIds.has(id))
+    .map((notificationId) => ({
+      notification_id: notificationId,
+      user_id: String(session.id),
+      user_role: session.role
+    }));
+  if (!rows.length) return;
+  notificationDismissalSyncAttempts.add(syncKey);
+
+  let result;
+  try {
+    result = await supabase
+      .from("notification_dismissals")
+      .upsert(rows, { onConflict: "notification_id,user_id,user_role" })
+      .select();
+  } catch (error) {
+    console.error("Não foi possível sincronizar avisos ocultados:", error);
+    return;
+  }
+  const { data, error } = result;
+  if (error) {
+    console.error("Não foi possível sincronizar avisos ocultados:", error);
+    return;
+  }
+
+  const savedRows = data || rows;
+  const existingKeys = new Set(state.notificationDismissals.map((item) =>
+    `${item.notification_id}:${item.user_id}:${item.user_role}`
+  ));
+  state.notificationDismissals = [
+    ...state.notificationDismissals,
+    ...savedRows.filter((item) => !existingKeys.has(`${item.notification_id}:${item.user_id}:${item.user_role}`))
+  ];
+  clearCache("notification_dismissals");
+  try {
+    localStorage.removeItem(storageKey);
+  } catch (storageError) {
+    console.warn("Avisos sincronizados, mas a cópia local não pôde ser removida.", storageError);
+  }
+}
+
 function notificationBell(session) {
+  void syncLocalNotificationDismissals(session);
   const count = privateNotificationsFor(session).length;
   return `<button class="button ghost notification-bell" type="button" data-notification-bell aria-label="Abrir avisos">&#128276;${count ? `<span class="notification-count">${count}</span>` : ""}</button>`;
 }
@@ -4379,13 +4447,9 @@ function renderRecoveryCell(grade, trimester, student) {
 function renderFixedGradeInput(score, name, field, label, { recovery = false, disabled = false } = {}) {
   const numericScore = Number(score);
   const hasScore = Number.isFinite(numericScore) && numericScore > 0;
-  const whole = hasScore ? String(Math.floor(numericScore)) : "";
-  const decimal = hasScore ? String(Math.round((numericScore - Math.floor(numericScore)) * 10)) : "";
   const value = hasScore ? numericScore.toFixed(1) : "";
   return `<div class="grade-score-input">
-    <input class="input" type="text" inputmode="numeric" maxlength="2" placeholder="0" data-score-part="whole" data-score-field="${escapeHtml(field)}" aria-label="${escapeHtml(label)} — parte inteira" value="${whole}" ${disabled ? "disabled" : ""}>
-    <span class="grade-score-separator" aria-hidden="true">.</span>
-    <input class="input" type="text" inputmode="numeric" maxlength="1" placeholder="0" data-score-part="decimal" data-score-field="${escapeHtml(field)}" aria-label="${escapeHtml(label)} — parte decimal" value="${decimal}" ${disabled ? "disabled" : ""}>
+    <input class="input" type="text" inputmode="decimal" maxlength="4" placeholder="0.0" data-score-entry data-score-field="${escapeHtml(field)}" aria-label="${escapeHtml(label)}" value="${value}" ${disabled ? "disabled" : ""}>
     <input type="hidden" name="${escapeHtml(name)}" data-score-input="${escapeHtml(field)}" value="${value}" ${recovery ? "data-recovery-input" : ""}>
   </div>`;
 }
@@ -4479,21 +4543,78 @@ function setupTeacherGradeLivePreview(teacher, trimester, subject, className) {
   });
 }
 
+function formatFixedGradeDigits(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 3);
+  if (!digits) return "";
+  if (digits.length === 1) return digits;
+  return `${digits.slice(0, -1)}.${digits.slice(-1)}`;
+}
+
+function formatExplicitGradeScore(value) {
+  const normalized = String(value || "").replace(",", ".");
+  const separator = normalized.indexOf(".");
+  if (separator < 0) return formatFixedGradeDigits(normalized);
+  const whole = normalized.slice(0, separator).replace(/\D/g, "").slice(0, 2) || "0";
+  const decimal = normalized.slice(separator + 1).replace(/\D/g, "").slice(0, 1);
+  return `${whole}.${decimal}`;
+}
+
+function canonicalGradeScore(value) {
+  if (!value) return "";
+  if (value.endsWith(".")) return `${value}0`;
+  if (!value.includes(".")) return `${value}.0`;
+  return value;
+}
+
 function bindFixedGradeInputs(row, updateRow) {
-  row.querySelectorAll("[data-score-part]").forEach((input) => {
+  row.querySelectorAll("[data-score-entry]").forEach((input) => {
     if (input.dataset.scoreBound) return;
     input.dataset.scoreBound = "true";
-    input.addEventListener("focus", () => input.select());
-    input.addEventListener("input", () => {
+    input.addEventListener("focus", () => {
+      input.dataset.scoreMode = "digits";
+      input.dataset.scoreDigits = "";
+      input.select();
+    });
+    input.addEventListener("input", (event) => {
+      const mode = input.dataset.scoreMode || "digits";
+      let displayValue;
+      if (mode === "digits" && /^\d$/.test(event.data || "")) {
+        input.dataset.scoreDigits = `${input.dataset.scoreDigits || ""}${event.data}`.slice(0, 3);
+        displayValue = formatFixedGradeDigits(input.dataset.scoreDigits);
+      } else if (mode === "digits" && (event.data === "." || event.data === ",")) {
+        input.dataset.scoreMode = "explicit";
+        displayValue = formatExplicitGradeScore(input.value);
+      } else if (mode === "digits" && event.inputType?.startsWith("delete")) {
+        input.dataset.scoreDigits = input.value.replace(/\D/g, "").slice(0, 3);
+        displayValue = formatFixedGradeDigits(input.dataset.scoreDigits);
+      } else {
+        const previousDisplay = formatFixedGradeDigits(input.dataset.scoreDigits || "");
+        const enteredSeparator = input.value === `${previousDisplay}.` ||
+          input.value === `${previousDisplay},` ||
+          (event.inputType === "insertFromPaste" && /[.,]/.test(input.value));
+        if (mode === "digits" && enteredSeparator) input.dataset.scoreMode = "explicit";
+        if (input.dataset.scoreMode === "explicit") {
+          displayValue = formatExplicitGradeScore(input.value);
+        } else {
+          input.dataset.scoreDigits = input.value.replace(/\D/g, "").slice(0, 3);
+          displayValue = formatFixedGradeDigits(input.dataset.scoreDigits);
+        }
+      }
+
+      input.value = displayValue;
       const field = input.dataset.scoreField;
-      const wholeInput = row.querySelector(`[data-score-part="whole"][data-score-field="${field}"]`);
-      const decimalInput = row.querySelector(`[data-score-part="decimal"][data-score-field="${field}"]`);
       const valueInput = row.querySelector(`[data-score-input="${field}"]`);
-      const whole = wholeInput?.value.replace(/\D/g, "").slice(0, 2) || "";
-      const decimal = decimalInput?.value.replace(/\D/g, "").slice(0, 1) || "";
-      if (wholeInput && wholeInput.value !== whole) wholeInput.value = whole;
-      if (decimalInput && decimalInput.value !== decimal) decimalInput.value = decimal;
-      if (valueInput) valueInput.value = whole || decimal ? `${whole || "0"}.${decimal || "0"}` : "";
+      if (valueInput) valueInput.value = canonicalGradeScore(displayValue);
+      updateRow();
+    });
+    input.addEventListener("blur", () => {
+      const displayValue = input.dataset.scoreMode === "explicit"
+        ? formatExplicitGradeScore(input.value)
+        : formatFixedGradeDigits(input.dataset.scoreDigits || input.value);
+      const canonicalValue = canonicalGradeScore(displayValue);
+      input.value = canonicalValue;
+      const valueInput = row.querySelector(`[data-score-input="${input.dataset.scoreField}"]`);
+      if (valueInput) valueInput.value = canonicalValue;
       updateRow();
     });
   });
