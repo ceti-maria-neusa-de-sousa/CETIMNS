@@ -54,10 +54,12 @@ export async function fetchWithCache(table, key, fetchFn, options = {}) {
   if (cached && !options.force) {
     const isFresh = Date.now() - cached.timestamp < CACHE_TIME;
     if (isFresh) {
+      options.onCache?.();
       return cached.data;
     }
     if (options.allowStale) {
       options.onStale?.();
+      options.onCache?.();
       return cached.data;
     }
   }
@@ -69,6 +71,7 @@ export async function fetchWithCache(table, key, fetchFn, options = {}) {
     console.error(`Erro ao buscar ${table}:`, error);
     if (cached) {
       console.warn(`Usando dados em cache para ${table}.`);
+      options.onCache?.();
       return cached.data;
     }
     throw error;

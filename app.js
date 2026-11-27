@@ -1,4 +1,4 @@
-import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-cache-recovery";
+import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-startup-refresh";
 
 console.log("App carregado!");
 console.log("Supabase:", supabase);
@@ -79,6 +79,9 @@ let editingSectorChecklistId = null;
 let isRefreshingData = false;
 let isSavingRecord = false;
 let requiredDataLoadErrors = 0;
+let supportMessagesLoaded = false;
+const loadedSupportMessageRequestIds = new Set();
+const supportMessagesLoadPromises = new Map();
 // Impede que a atualização automática substitua um formulário em edição.
 let hasUnsavedFormChanges = false;
 let adminEditState = {
@@ -285,7 +288,7 @@ function isFinalYearClass(className) {
 }
 
 // ==================== FUNÇÕES DE DADOS ====================
-async function loadDataFromSupabase({ useCache = false, forceNetwork = false, allowStaleCache = false, onStaleCache } = {}) {
+async function loadDataFromSupabase({ useCache = false, forceNetwork = false, allowStaleCache = false, onStaleCache, onCacheUsed, skipIfUnsaved = false } = {}) {
   try {
     if (isRefreshingData) return false;
     isRefreshingData = true;
@@ -297,7 +300,8 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
       const load = () => useCache ? fetchWithCache(table, "all", request, {
         force: forceNetwork || table === "teacher_assignments",
         allowStale: allowStaleCache,
-        onStale: onStaleCache
+        onStale: onStaleCache,
+        onCache: onCacheUsed
       }) : request();
       if (!optional) return load();
       return load().catch((error) => {
@@ -305,7 +309,7 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
         return [];
       });
     };
-    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, supportMessagesData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
+    const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
       loadTable("classes"),
       loadTable("subjects"),
       loadTable("students"),
@@ -324,7 +328,6 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
       loadTable("kitchen_stock", undefined, true),
       loadTable("dietary_restrictions", undefined, true),
       loadTable("support_requests", undefined, true),
-      loadTable("support_messages", undefined, true),
       loadTable("student_documents", undefined, true),
       loadTable("teacher_assignments", undefined, true),
       loadTable("grades"),
@@ -338,6 +341,7 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
     // Não substitui o estado atual por listas vazias se a rede ou o banco
     // falhar. Isso evitava que um usuário logado fosse removido do painel.
     if (requiredDataLoadErrors) throw new Error("Não foi possível atualizar os dados essenciais do portal.");
+    if (skipIfUnsaved && hasUnsavedFormChanges) return false;
 
     state.classes = (classesData || [])
       .map((item) => ({ ...item, name: item.name || "" }))
@@ -361,7 +365,6 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
     state.kitchenStock = kitchenStockData || [];
     state.dietaryRestrictions = dietaryRestrictionsData || [];
     state.supportRequests = supportRequestsData || [];
-    state.supportMessages = supportMessagesData || [];
     state.studentDocuments = studentDocumentsData || [];
     state.teacherAssignments = (teacherAssignmentsData || []).map(normalizeTeacherAssignmentData);
     state.grades = (gradesData || []).map(normalizeGradeData);
@@ -2219,6 +2222,37 @@ function supportMessagesFor(requestId) {
     .sort((left, right) => String(left.created_at || "").localeCompare(String(right.created_at || "")));
 }
 
+async function ensureSupportMessagesLoaded(requestId = null) {
+  const requestKey = requestId === null ? null : String(requestId);
+  if (supportMessagesLoaded || (requestKey && loadedSupportMessageRequestIds.has(requestKey))) return;
+  const loadKey = requestKey || "*";
+  if (!supportMessagesLoadPromises.has(loadKey)) {
+    let query = supabase.from("support_messages").select("*").order("created_at", { ascending: true });
+    if (requestKey) query = query.eq("support_request_id", requestKey);
+    supportMessagesLoadPromises.set(loadKey, query);
+  }
+  const loadPromise = supportMessagesLoadPromises.get(loadKey);
+  try {
+    const { data, error } = await loadPromise;
+    if (error) throw error;
+    if (requestKey) {
+      const loadedMessages = data || [];
+      const loadedMessageIds = new Set(loadedMessages.map((message) => String(message.id)));
+      const otherMessages = state.supportMessages.filter((message) => !idsEqual(message.support_request_id, requestKey));
+      const pendingLocalMessages = state.supportMessages.filter((message) =>
+        idsEqual(message.support_request_id, requestKey) && !loadedMessageIds.has(String(message.id))
+      );
+      state.supportMessages = [...otherMessages, ...loadedMessages, ...pendingLocalMessages];
+      loadedSupportMessageRequestIds.add(requestKey);
+    } else {
+      state.supportMessages = data || [];
+      supportMessagesLoaded = true;
+    }
+  } finally {
+    if (supportMessagesLoadPromises.get(loadKey) === loadPromise) supportMessagesLoadPromises.delete(loadKey);
+  }
+}
+
 function latestSupportRequest(requesterId) {
   return state.supportRequests
     .filter((request) => idsEqual(request.requester_id, requesterId))
@@ -2465,6 +2499,14 @@ function renderPortalSupportChat(session, root = $("[data-login-root]")) {
   const content = $("[data-portal-support-content]", root);
   const request = activeSupportRequest(String(session.id));
   if (request) {
+    if (!supportMessagesLoaded) {
+      content.innerHTML = `<p class="muted">Carregando conversa...</p>`;
+      void ensureSupportMessagesLoaded(request.id).then(() => renderPortalSupportChat(session, root)).catch((error) => {
+        console.error("Erro ao carregar mensagens do atendimento:", error);
+        content.innerHTML = `<p class="muted">Não foi possível carregar as mensagens. Verifique a conexão e tente novamente.</p>`;
+      });
+      return;
+    }
     content.innerHTML = `<p class="support-subject"><strong>${escapeHtml(request.subject)}</strong> · ${escapeHtml(request.status)}</p>${supportMessageList(request, session.role)}${supportComposer(request, session.role, String(session.id), session.name, session.role)}`;
   } else {
     const latest = latestSupportRequest(String(session.id));
@@ -2516,8 +2558,20 @@ function renderSecretaryPanel(session, employee) {
   root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
   bindSectorChecklists(session);
   const content = $("[data-secretary-content]");
+  let activeTab = "requests";
   const show = (tab) => {
+    activeTab = tab;
     $$("[data-secretary-tab]").forEach((button) => button.classList.toggle("active", button.dataset.secretaryTab === tab));
+    if (tab === "requests" && !supportMessagesLoaded) {
+      content.innerHTML = `<p class="muted">Carregando atendimentos...</p>`;
+      void ensureSupportMessagesLoaded().then(() => {
+        if (activeTab === "requests") show("requests");
+      }).catch((error) => {
+        console.error("Erro ao carregar mensagens dos atendimentos:", error);
+        if (activeTab === "requests") content.innerHTML = `<p class="muted">Não foi possível carregar os atendimentos. Verifique a conexão e tente novamente.</p>`;
+      });
+      return;
+    }
     if (tab === "people") {
       const staffRows = [
         ...state.teachers.filter((person) => person.user).map((person) => ({ name: person.name, role: "Professor(a)" })),
@@ -4360,8 +4414,8 @@ function teacherStudentRow(student, teacher, trimester, subject, className) {
       <label class="grade-input-cell" data-label="N1">${renderFixedGradeInput(trimesterData.n1, `n1-${student.id}`, "n1", `Nota 1 de ${student.name}`)}</label>
       <label class="grade-input-cell" data-label="N2">${renderFixedGradeInput(trimesterData.n2, `n2-${student.id}`, "n2", `Nota 2 de ${student.name}`)}</label>
       <label class="grade-input-cell" data-label="N3">${renderFixedGradeInput(trimesterData.n3, `n3-${student.id}`, "n3", `Nota 3 de ${student.name}`)}</label>
-      <div class="grade-value-cell" data-label="Recuperacao" data-recovery-cell>${renderRecoveryCell(grade, trimester, student)}</div>
       <strong class="grade-value-cell" data-label="Media" data-average>${average}</strong>
+      <div class="grade-value-cell" data-label="Recuperação" data-recovery-cell>${renderRecoveryCell(grade, trimester, student)}</div>
       <span class="grade-value-cell badge ${approved ? "success" : "warning"}" data-label="Situacao" data-status>${statusText}</span>
     </div>
   `;
@@ -4626,6 +4680,14 @@ function renderPublicSupportChat() {
   const requesterId = publicSupportRequesterId();
   const request = activeSupportRequest(requesterId);
   if (request) {
+    if (!supportMessagesLoaded) {
+      content.innerHTML = `<p class="muted">Carregando conversa...</p>`;
+      void ensureSupportMessagesLoaded(request.id).then(renderPublicSupportChat).catch((error) => {
+        console.error("Erro ao carregar mensagens do atendimento público:", error);
+        content.innerHTML = `<p class="muted">Não foi possível carregar as mensagens. Verifique a conexão e tente novamente.</p>`;
+      });
+      return;
+    }
     content.innerHTML = `<p class="support-subject"><strong>${escapeHtml(request.subject)}</strong> · ${escapeHtml(request.status)}</p>${supportMessageList(request, "public")}${supportComposer(request, "public", requesterId, request.requester_name, "public", request.requester_contact || "")}`;
     bindSupportComposer(content, renderPublicSupportChat);
     return;
@@ -4721,8 +4783,8 @@ async function refreshDataInBackground() {
   // Não recarrega/recria o painel enquanto a pessoa estiver preenchendo algo.
   // Antes disso, o refresh de 30 segundos apagava o texto não salvo.
   if (hasUnsavedFormChanges) return;
-  const updated = await loadDataFromSupabase({ useCache: true, forceNetwork: true });
-  if (!updated) return;
+  const updated = await loadDataFromSupabase({ useCache: true, forceNetwork: true, skipIfUnsaved: true });
+  if (!updated || hasUnsavedFormChanges) return;
   if (currentPageName() === "login") renderLoginPortal();
   else renderVisiblePublicPage();
 }
@@ -4730,17 +4792,20 @@ async function refreshDataInBackground() {
 window.addEventListener("hashchange", route);
 document.addEventListener("DOMContentLoaded", async () => {
   document.title = `${SCHOOL_TITLE} | Portal`;
+  clearCache("support_messages");
+  let cacheUsed = false;
   let staleCacheUsed = false;
   const initialDataLoaded = await loadDataFromSupabase({
     useCache: true,
     allowStaleCache: true,
-    onStaleCache: () => { staleCacheUsed = true; }
+    onStaleCache: () => { staleCacheUsed = true; },
+    onCacheUsed: () => { cacheUsed = true; }
   });
   renderPublic();
   setupUi();
   setupPreferences();
   route();
-  if (!initialDataLoaded || staleCacheUsed) void refreshDataInBackground();
+  if (!initialDataLoaded || staleCacheUsed || cacheUsed) void refreshDataInBackground();
   window.setInterval(refreshDataInBackground, 30000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) void refreshDataInBackground();
