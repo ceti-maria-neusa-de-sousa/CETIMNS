@@ -27,45 +27,75 @@ const CACHE_TIME = 5 * 60 * 1000; // 5 minutos
 
 export async function fetchWithCache(table, key, fetchFn, options = {}) {
   const cacheKey = `${CACHE_PREFIX}${table}_${key}`;
-  const cached = localStorage.getItem(cacheKey);
-  
+  let cached;
+
+  try {
+    const stored = localStorage.getItem(cacheKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (
+          parsed &&
+          Object.prototype.hasOwnProperty.call(parsed, "data") &&
+          Number.isFinite(parsed.timestamp)
+        ) {
+          cached = parsed;
+        } else {
+          console.warn(`Cache local inválido para ${table}; será ignorado.`);
+        }
+      } catch (error) {
+        console.warn(`Não foi possível interpretar o cache local de ${table}; será ignorado.`, error);
+      }
+    }
+  } catch (error) {
+    console.warn(`Não foi possível ler o cache local de ${table}; os dados serão buscados no Supabase.`, error);
+  }
+
   if (cached && !options.force) {
-    const { data, timestamp } = JSON.parse(cached);
-    const isFresh = Date.now() - timestamp < CACHE_TIME;
+    const isFresh = Date.now() - cached.timestamp < CACHE_TIME;
     if (isFresh) {
-      return data;
+      return cached.data;
     }
     if (options.allowStale) {
       options.onStale?.();
-      return data;
+      return cached.data;
     }
   }
 
+  let data;
   try {
-    const data = await fetchFn();
-    localStorage.setItem(cacheKey, JSON.stringify({ data, timestamp: Date.now() }));
-    return data;
+    data = await fetchFn();
   } catch (error) {
     console.error(`Erro ao buscar ${table}:`, error);
     if (cached) {
-      const { data } = JSON.parse(cached);
-      console.log("Usando dados em cache");
-      return data;
+      console.warn(`Usando dados em cache para ${table}.`);
+      return cached.data;
     }
     throw error;
   }
+
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch (error) {
+    console.warn(`Os dados de ${table} foram carregados, mas não foi possível atualizar o cache local.`, error);
+  }
+  return data;
 }
 
 export function clearCache(table) {
-  const prefix = `${CACHE_PREFIX}${table}_`;
-  const keysToRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key?.startsWith(prefix)) {
-      keysToRemove.push(key);
+  try {
+    const prefix = `${CACHE_PREFIX}${table}_`;
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(prefix)) {
+        keysToRemove.push(key);
+      }
     }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+  } catch (error) {
+    console.warn(`Não foi possível limpar o cache local de ${table}.`, error);
   }
-  keysToRemove.forEach((key) => localStorage.removeItem(key));
 }
 
 export function getSupabaseConfig() {
