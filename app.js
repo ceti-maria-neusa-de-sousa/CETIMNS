@@ -1,4 +1,4 @@
-import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-support-performance";
+import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-support-chat-loop-fix";
 
 console.log("App carregado!");
 console.log("Supabase:", supabase);
@@ -2566,7 +2566,7 @@ function renderPortalSupportChat(session, root = $("[data-login-root]")) {
   const content = $("[data-portal-support-content]", root);
   const request = activeSupportRequest(String(session.id));
   if (request) {
-    if (!supportMessagesLoaded) {
+    if (!supportMessagesLoaded && !loadedSupportMessageRequestIds.has(String(request.id))) {
       content.innerHTML = `<p class="muted">Carregando conversa...</p>`;
       void ensureSupportMessagesLoaded(request.id).then(() => renderPortalSupportChat(session, root)).catch((error) => {
         console.error("Erro ao carregar mensagens do atendimento:", error);
@@ -4819,7 +4819,7 @@ function renderPublicSupportChat() {
   const requesterId = publicSupportRequesterId();
   const request = activeSupportRequest(requesterId);
   if (request) {
-    if (!supportMessagesLoaded) {
+    if (!supportMessagesLoaded && !loadedSupportMessageRequestIds.has(String(request.id))) {
       content.innerHTML = `<p class="muted">Carregando conversa...</p>`;
       void ensureSupportMessagesLoaded(request.id).then(renderPublicSupportChat).catch((error) => {
         console.error("Erro ao carregar mensagens do atendimento público:", error);
