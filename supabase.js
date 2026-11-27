@@ -31,7 +31,12 @@ export async function fetchWithCache(table, key, fetchFn, options = {}) {
   
   if (cached && !options.force) {
     const { data, timestamp } = JSON.parse(cached);
-    if (Date.now() - timestamp < CACHE_TIME) {
+    const isFresh = Date.now() - timestamp < CACHE_TIME;
+    if (isFresh) {
+      return data;
+    }
+    if (options.allowStale) {
+      options.onStale?.();
       return data;
     }
   }

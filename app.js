@@ -285,7 +285,7 @@ function isFinalYearClass(className) {
 }
 
 // ==================== FUNÇÕES DE DADOS ====================
-async function loadDataFromSupabase({ useCache = false, forceNetwork = false } = {}) {
+async function loadDataFromSupabase({ useCache = false, forceNetwork = false, allowStaleCache = false, onStaleCache } = {}) {
   try {
     if (isRefreshingData) return false;
     isRefreshingData = true;
@@ -294,7 +294,11 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false } =
 
     const loadTable = (table, transform, optional) => {
       const request = () => safeTableSelect(table, transform, optional);
-      return useCache ? fetchWithCache(table, "all", request, { force: forceNetwork }) : request();
+      return useCache ? fetchWithCache(table, "all", request, {
+        force: forceNetwork,
+        allowStale: allowStaleCache,
+        onStale: onStaleCache
+      }) : request();
     };
     const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, supportMessagesData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
       loadTable("classes"),
@@ -4694,12 +4698,17 @@ async function refreshDataInBackground() {
 window.addEventListener("hashchange", route);
 document.addEventListener("DOMContentLoaded", async () => {
   document.title = `${SCHOOL_TITLE} | Portal`;
-  await loadDataFromSupabase({ useCache: true });
+  let staleCacheUsed = false;
+  const initialDataLoaded = await loadDataFromSupabase({
+    useCache: true,
+    allowStaleCache: true,
+    onStaleCache: () => { staleCacheUsed = true; }
+  });
   renderPublic();
   setupUi();
   setupPreferences();
   route();
-  void refreshDataInBackground();
+  if (!initialDataLoaded || staleCacheUsed) void refreshDataInBackground();
   window.setInterval(refreshDataInBackground, 30000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) void refreshDataInBackground();
