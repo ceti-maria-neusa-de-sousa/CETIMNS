@@ -1,4 +1,4 @@
-import { supabase, fetchWithCache, clearCache } from "./supabase.js";
+import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-cache-recovery";
 
 console.log("App carregado!");
 console.log("Supabase:", supabase);
