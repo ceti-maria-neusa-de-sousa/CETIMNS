@@ -294,11 +294,16 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
 
     const loadTable = (table, transform, optional) => {
       const request = () => safeTableSelect(table, transform, optional);
-      return useCache ? fetchWithCache(table, "all", request, {
-        force: forceNetwork,
+      const load = () => useCache ? fetchWithCache(table, "all", request, {
+        force: forceNetwork || table === "teacher_assignments",
         allowStale: allowStaleCache,
         onStale: onStaleCache
       }) : request();
+      if (!optional) return load();
+      return load().catch((error) => {
+        console.warn(`Erro ao buscar tabela opcional ${table}:`, error);
+        return [];
+      });
     };
     const [classesData, subjectsData, studentsData, teachersData, staffData, notificationsData, notificationDismissalsData, workTasksData, workTaskAssigneesData, sectorChecklistsData, sectorChecklistItemsData, sectorChecklistCompletionsData, sectorChecklistAssigneesData, sectorRecordsData, kitchenMenuData, kitchenStockData, dietaryRestrictionsData, supportRequestsData, supportMessagesData, studentDocumentsData, teacherAssignmentsData, gradesData, newsData, eventsData, activitiesData, achievementsData, configData] = await Promise.all([
       loadTable("classes"),
@@ -408,9 +413,8 @@ async function safeTableSelect(table, transform, optional = false) {
     if (!optional) {
       requiredDataLoadErrors += 1;
       console.error(`Erro ao buscar ${table}:`, error);
-      throw error;
     }
-    return [];
+    throw error;
   }
 }
 
