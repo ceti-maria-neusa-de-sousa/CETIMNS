@@ -1,4 +1,4 @@
-import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-grade-entry";
+import { supabase, fetchWithCache, clearCache } from "./supabase.js?v=20261127-support-performance";
 
 console.log("App carregado!");
 console.log("Supabase:", supabase);
@@ -1330,7 +1330,6 @@ function renderTeacherPanel(session) {
         </div>
       </div>
       <form data-teacher-grade-form>
-        <p class="muted fixed-grade-hint">Digite sem o ponto: 10 vira 1.0, 65 vira 6.5 e 100 vira 10.0. Notas acima de 10 não são aceitas.</p>
         <div class="gradebook-table">
           <div class="gradebook-head">
             <span>Estudante</span><span>N1</span><span>N2</span><span>N3</span><span>Média</span><span>Recuperação</span><span>Situação</span>
@@ -2626,20 +2625,11 @@ function renderSecretaryPanel(session, employee) {
   root.insertAdjacentHTML("beforeend", renderSectorChecklists(session));
   bindSectorChecklists(session);
   const content = $("[data-secretary-content]");
+  const openedSupportRequestIds = new Set();
   let activeTab = "requests";
   const show = (tab) => {
     activeTab = tab;
     $$("[data-secretary-tab]").forEach((button) => button.classList.toggle("active", button.dataset.secretaryTab === tab));
-    if (tab === "requests" && !supportMessagesLoaded) {
-      content.innerHTML = `<p class="muted">Carregando atendimentos...</p>`;
-      void ensureSupportMessagesLoaded().then(() => {
-        if (activeTab === "requests") show("requests");
-      }).catch((error) => {
-        console.error("Erro ao carregar mensagens dos atendimentos:", error);
-        if (activeTab === "requests") content.innerHTML = `<p class="muted">Não foi possível carregar os atendimentos. Verifique a conexão e tente novamente.</p>`;
-      });
-      return;
-    }
     if (tab === "people") {
       const staffRows = [
         ...state.teachers.filter((person) => person.user).map((person) => ({ name: person.name, role: "Professor(a)" })),
@@ -2672,12 +2662,39 @@ function renderSecretaryPanel(session, employee) {
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     content.innerHTML = `<section class="panel"><div class="portal-heading compact"><div><h3>Chamados recebidos</h3><p class="muted">Consulte o conteúdo, remetente e data de cada atendimento.</p></div></div><div class="support-filters"><label>Período<select class="input" data-support-period><option value="all" ${period === "all" ? "selected" : ""}>Todos</option><option value="day" ${period === "day" ? "selected" : ""}>Dia</option><option value="week" ${period === "week" ? "selected" : ""}>Semana</option><option value="month" ${period === "month" ? "selected" : ""}>Mês</option><option value="year" ${period === "year" ? "selected" : ""}>Ano</option></select></label><label>Data de referência<input class="input" type="date" data-support-date value="${escapeHtml(referenceDate || new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }))}"></label></div><div class="support-conversation-list">${requests.map((item) => {
       const isClosed = String(item.status || "").toLowerCase() === "encerrado";
+      const requestId = String(item.id);
+      const isOpen = openedSupportRequestIds.has(requestId);
+      const messagesLoaded = supportMessagesLoaded || loadedSupportMessageRequestIds.has(requestId);
       const legacyFile = item.attachment?.data ? supportAttachmentLink(item.attachment) : "";
       const receivedDate = item.created_at ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(item.created_at)) : "Data não informada";
-      return `<article class="support-thread-card"><header><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.requester_role || "público")}${item.requester_contact ? ` · ${escapeHtml(item.requester_contact)}` : ""} · ${escapeHtml(item.status || "Aberto")}</p><p class="muted">Recebido em ${escapeHtml(receivedDate)}</p></div><div class="row-actions">${isClosed ? `<span class="badge">Encerrado</span>` : `<button class="button ghost" type="button" data-support-close="${escapeHtml(item.id)}">Encerrar assunto</button>`}<button class="button ghost" type="button" data-support-delete="${escapeHtml(item.id)}">Excluir</button></div></header>${legacyFile ? `<div class="support-legacy-attachment">${legacyFile}</div>` : ""}${supportMessageList(item, "secretaria")}${isClosed ? `<p class="support-closed-note">Este assunto foi encerrado.</p>` : supportComposer(item, "secretaria", String(session.id), employee.name, "secretaria")}</article>`;
+      const conversation = isOpen
+        ? messagesLoaded
+          ? `${supportMessageList(item, "secretaria")}${isClosed ? `<p class="support-closed-note">Este assunto foi encerrado.</p>` : supportComposer(item, "secretaria", String(session.id), employee.name, "secretaria")}`
+          : `<p class="muted">Carregando conversa...</p>`
+        : "";
+      return `<article class="support-thread-card"><header><div><strong>${escapeHtml(item.requester_name)} — ${escapeHtml(item.subject)}</strong><p class="muted">${escapeHtml(item.requester_role || "público")}${item.requester_contact ? ` · ${escapeHtml(item.requester_contact)}` : ""} · ${escapeHtml(item.status || "Aberto")}</p><p class="muted">Recebido em ${escapeHtml(receivedDate)}</p></div><div class="row-actions"><button class="button ghost" type="button" data-support-open="${escapeHtml(item.id)}">${isOpen ? "Ocultar conversa" : "Ver conversa"}</button>${isClosed ? `<span class="badge">Encerrado</span>` : `<button class="button ghost" type="button" data-support-close="${escapeHtml(item.id)}">Encerrar assunto</button>`}<button class="button ghost" type="button" data-support-delete="${escapeHtml(item.id)}">Excluir</button></div></header>${legacyFile ? `<div class="support-legacy-attachment">${legacyFile}</div>` : ""}${conversation}</article>`;
     }).join("") || emptyState("Nenhum atendimento recebido.")}</div></section>`;
     $$("[data-support-period], [data-support-date]", content).forEach((input) => input.addEventListener("change", () => show("requests")));
     bindSupportComposer(content, () => show("requests"));
+    $$("[data-support-open]", content).forEach((button) => button.addEventListener("click", () => {
+      const requestId = button.dataset.supportOpen;
+      if (openedSupportRequestIds.has(requestId)) {
+        openedSupportRequestIds.delete(requestId);
+        show("requests");
+        return;
+      }
+      openedSupportRequestIds.add(requestId);
+      show("requests");
+      if (supportMessagesLoaded || loadedSupportMessageRequestIds.has(requestId)) return;
+      void ensureSupportMessagesLoaded(requestId).then(() => {
+        if (activeTab === "requests" && openedSupportRequestIds.has(requestId)) show("requests");
+      }).catch((error) => {
+        console.error("Erro ao carregar mensagens do atendimento:", error);
+        openedSupportRequestIds.delete(requestId);
+        if (activeTab === "requests") show("requests");
+        toast("Não foi possível carregar esta conversa. Tente novamente.");
+      });
+    }));
     $$("[data-support-close]", content).forEach((button) => button.addEventListener("click", async () => {
       const item = requests.find((request) => idsEqual(request.id, button.dataset.supportClose));
       if (!item || !window.confirm(`Encerrar o assunto "${item.subject}" de ${item.requester_name}?`)) return;
@@ -2701,6 +2718,7 @@ function renderSecretaryPanel(session, employee) {
       }
       state.supportRequests = state.supportRequests.filter((request) => !idsEqual(request.id, item.id));
       state.supportMessages = state.supportMessages.filter((message) => !idsEqual(message.support_request_id, item.id));
+      openedSupportRequestIds.delete(String(item.id));
       clearCache("support_requests");
       clearCache("support_messages");
       toast("Atendimento excluído.");
@@ -4927,7 +4945,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupPreferences();
   route();
   if (!initialDataLoaded || staleCacheUsed || cacheUsed) void refreshDataInBackground();
-  window.setInterval(refreshDataInBackground, 30000);
+  window.setInterval(refreshDataInBackground, 120000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) void refreshDataInBackground();
   });

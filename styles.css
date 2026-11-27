@@ -1442,7 +1442,6 @@ textarea.input {
   padding: 6px 8px;
 }
 
-.fixed-grade-hint { margin: 0 0 10px; font-size: .88rem; }
 .grade-score-input { min-width: 0; }
 .grade-score-input .input { width: 100%; min-width: 0; padding: 6px 8px; text-align: center; font-variant-numeric: tabular-nums; }
 
