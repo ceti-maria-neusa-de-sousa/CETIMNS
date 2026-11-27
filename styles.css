@@ -1072,6 +1072,10 @@ textarea.input {
   box-shadow: var(--shadow);
 }
 
+.toast-error {
+  background: #9f1239;
+}
+
 .notification-bell {
   position: relative;
   width: 44px;

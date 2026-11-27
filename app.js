@@ -387,9 +387,11 @@ async function loadDataFromSupabase({ useCache = false, forceNetwork = false, al
     };
 
     console.log("Dados carregados com sucesso");
+    clearDatabaseLoadError();
     return true;
   } catch (error) {
     console.error("Erro ao carregar dados do Supabase:", error);
+    showDatabaseLoadError();
     return false;
   } finally {
     isRefreshingData = false;
@@ -406,6 +408,7 @@ async function safeTableSelect(table, transform, optional = false) {
     if (!optional) {
       requiredDataLoadErrors += 1;
       console.error(`Erro ao buscar ${table}:`, error);
+      throw error;
     }
     return [];
   }
@@ -779,6 +782,21 @@ function toast(message) {
   item.textContent = message;
   region.append(item);
   setTimeout(() => item.remove(), 3200);
+}
+
+function showDatabaseLoadError() {
+  const region = $("[data-toast-region]");
+  if (!region || $("#database-load-error")) return;
+  const item = document.createElement("div");
+  item.id = "database-load-error";
+  item.className = "toast toast-error";
+  item.setAttribute("role", "alert");
+  item.textContent = "Não foi possível carregar os dados do banco. Esta tentativa não apagou os registros. Verifique a conexão e o projeto Supabase configurado.";
+  region.append(item);
+}
+
+function clearDatabaseLoadError() {
+  $("#database-load-error")?.remove();
 }
 
 function card(item, type, options = {}) {
