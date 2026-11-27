@@ -1105,7 +1105,15 @@ async function findLogin(user, password) {
       .select("*")
       .ilike("user", username)
       .eq("password", secret);
-    if (teachers?.length) return { role: "teacher", id: teachers[0].id, name: teachers[0].name };
+    if (teachers?.length) {
+      const teacher = normalizeTeacherData(teachers[0]);
+      state.teachers = sortPeopleByName([
+        ...state.teachers.filter((item) => !idsEqual(item.id, teacher.id)),
+        teacher
+      ]);
+      clearCache("teachers");
+      return { role: "teacher", id: teacher.id, name: teacher.name };
+    }
 
     const { data: staff } = await supabase
       .from("staff")
@@ -1203,7 +1211,7 @@ function renderLoginForm() {
 // ==================== PAINEL DO PROFESSOR ====================
 function renderTeacherPanel(session) {
   const root = $("[data-login-root]");
-  const teacher = state.teachers.find((item) => item.id === session.id);
+  const teacher = state.teachers.find((item) => idsEqual(item.id, session.id));
   if (!teacher) {
     clearSession();
     renderLoginForm();
